@@ -1,6 +1,6 @@
 # model-routing-cards
 
-**Pick the right AI model for a job — and know when you can't.**
+**Pick the right AI model for a job, and know when you can't.**
 
 You have a few models to choose from. One is cheaper, one is stronger, one is
 faster. For a job you run often, which should it be?
@@ -9,10 +9,11 @@ The usual answer is to try them both and pick the higher score. That works when
 the difference is real. Often it isn't: models vary a lot between runs, and an
 average hides that.
 
-This runs the comparison properly and writes a small file — a **routing card** —
-saying which model to use and how much to trust the answer.
+This runs the comparison properly and writes a small file called a
+**routing card**. It says which model to use, and how much to trust the
+answer.
 
-## Try it
+## Try It
 
 Thirty seconds, no signup, no key, nothing sent anywhere. The numbers are real
 measurements, replayed from disk.
@@ -37,7 +38,7 @@ google/gemini-3.8-flash            3/3        0%  0.4053 (0.4042–0.4071)    $0
 openai/gpt-5.5                     3/3        0%  0.2716 (0.1771–0.459)     $0.1452
 ```
 
-## Read that card
+## Read That Card
 
 Gemini averaged **49% higher** than GPT-5.5. The card recommends Gemini, but not
 for that reason.
@@ -55,7 +56,7 @@ price rather than quality, and that more runs could change it.
 You can check every number above by running the two commands in the previous
 section.
 
-## What a card can say
+## What a Card Can Say
 
 | It says | It means |
 |---|---|
@@ -67,7 +68,7 @@ section.
 Cards carry a date and expire after **30 days**, because model line-ups change
 and a stale card keeps recommending something that was retired.
 
-## Set it up on your own work
+## Set It Up on Your Own Work
 
 Writing the task file is the part that takes thought. An agent working in your
 repo can read the prompt you actually send, which is the detail most worth
@@ -95,7 +96,7 @@ a set of instructions added a week earlier was not reaching the model at all.
 Every test of those instructions had passed, because they tested the function
 that produced them rather than the text that was sent.
 
-## Or write the task file yourself
+## Or Write the Task File Yourself
 
 One file. It says what the job is, and what a good answer looks like.
 
@@ -116,8 +117,8 @@ export const task = {
 };
 ```
 
-`gates` are pass or fail — a run that fails one is thrown away, not scored low.
-`metrics` are 0 to 1. Then:
+`gates` are pass or fail. A run that fails one is thrown away rather than
+scored low. `metrics` are 0 to 1. Then:
 
 ```sh
 node scripts/route.mjs run  my-task.mjs            # dry run — costs nothing
@@ -127,7 +128,7 @@ node scripts/route.mjs card my-task.mjs            # write the card
 
 Nothing is sent and no key is read without `--execute`.
 
-## How cost is counted
+## How Cost Is Counted
 
 **Per accepted result, not per call.** A model that is cheap and fails half its
 runs costs twice its headline price, because you paid for the failed runs too.
@@ -135,7 +136,7 @@ runs costs twice its headline price, because you paid for the failed runs too.
 **A subscription model is recorded as unmeasured, not free.** Cards never break
 a tie on price when one model is metered and the other is not.
 
-## Scoring what you cannot count
+## Scoring What You Cannot Count
 
 A `score` that counts elements can be satisfied by output that is empty. A model
 asked to lay out a page once returned eight grids and sixteen columns with no
@@ -147,7 +148,7 @@ If your `score` needs to judge rather than count, it can ask a model:
 ## More
 
 - [Writing a task file](references/task-interface.md)
-- [Using it from Claude Code](SKILL.md) — it works as a skill; that's optional
+- [Using it from Claude Code](SKILL.md). Working as a skill is optional.
 - Not a replacement for Braintrust, Promptfoo or an LLM gateway. Those route
   live production traffic. This answers a smaller question, on your machine,
   about one job.
