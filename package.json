@@ -1,0 +1,10 @@
+{
+  "name": "model-routing",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Which model for this task, and whether to believe it.",
+  "scripts": {
+    "test": "node --test scripts/*.test.mjs"
+  },
+  "license": "MIT"
+}
