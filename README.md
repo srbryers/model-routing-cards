@@ -1,4 +1,4 @@
-# model-routing-cards
+# Model Routing Cards
 
 **Pick the right AI model for a job, and know when you can't.**
 
@@ -79,9 +79,9 @@ getting right. Hand it this:
 > Clone https://github.com/srbryers/model-routing-cards and read
 > `references/task-interface.md`.
 >
-> Find a job here where we call a language model more than once — a classifier,
-> a summariser, a generator — and write a task file for it. Use the real prompt:
-> import the function that builds it rather than retyping an approximation.
+> Find a job here where we call a language model more than once: a classifier,
+> a summariser, a generator. Write a task file for it, using the real prompt.
+> Import the function that builds the prompt rather than retyping it.
 >
 > Put facts in `gates` (did it parse, is it empty) and judgements in `metrics`.
 >
