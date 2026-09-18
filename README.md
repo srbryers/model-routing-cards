@@ -4,29 +4,25 @@
 
 Most bake-off scripts always name a winner. This one often refuses.
 
-**A measurement that looks fine and is wrong is worse than no measurement**,
-because you act on it. Two that happened here:
+A measurement that looks fine and is wrong is worse than no measurement. Two
+examples:
 
-- The first real card compared two models whose mean scores differed by **49%**.
-  It declined to prefer either, because their run *ranges overlapped* — one model
-  was near-deterministic, the other varied threefold from run to run. A mean
-  would have picked a winner from variance, and an agent would have routed real
-  work on it for a month.
+- Two models had mean scores differing by **49%**. The tool declined to prefer
+  either because their run ranges overlapped; one model was near-deterministic,
+  while the other varied threefold from run to run. A mean would have picked a
+  winner from variance, routing real work to it for a month.
 - A model told to put half its sections side by side returned eight grids,
   sixteen columns, and **not one heading, paragraph or image inside them**.
-  Scored as `row + grid: 8`, that reads as a success. It was an empty skeleton,
-  and the metric was cheering.
+  Scored as `row + grid: 8`, it read as a success despite being an empty
+  skeleton.
 
-Hence a trust gate that can say *I don't know*, ranges instead of means, cost per
-**accepted** result, and — for the second kind of failure — scoring that can
-actually read the output.
+This tool uses a trust gate that can say *I don't know*, ranges instead of
+means, cost per **accepted** result, and scoring that reads output.
 
-A routing card is a small JSON artifact a skill or agent can read, naming the
-model to use for one task — with a trust status attached. If the evidence is
-thin the card says so and declines to prefer a model.
+A routing card is a JSON artifact naming the model for a task with a trust
+status. If evidence is thin, it declines to prefer a model.
 
-See it for yourself without spending anything, or holding a key — the receipts
-are real measurements, replayed:
+Replay real measurements without keys or spend:
 
 ```sh
 node seed-from-today.mjs
@@ -48,22 +44,19 @@ openai/gpt-5.5                     3/3        0%  0.2716 (0.1771–0.459)     $0
 
 ## Two files, on purpose
 
-`SKILL.md` is what a [Claude Code](https://code.claude.com) agent loads when the
-skill triggers: the operating rules, short enough to sit in a context window.
-This README is for you. They overlap, and the duplication is deliberate — an
-agent cannot cheaply follow a link mid-task.
-
-Using it as a skill is optional. Everything here runs as plain Node.
+`SKILL.md` contains operating rules for a [Claude Code](https://code.claude.com)
+agent context window. This README is for humans. The duplication is deliberate;
+an agent cannot cheaply follow links mid-task. Skill use is optional; everything
+runs as plain Node.
 
 ## ⚠⚠ This is not an eval platform and must not become one
 
-Braintrust, Promptfoo, DeepEval and TrueFoundry already do production
-evaluation, tracing, online scoring and gateway routing, and they do it better
-than a local script will. They all route **live traffic**.
+Braintrust, Promptfoo, DeepEval, and TrueFoundry handle production evaluation,
+tracing, online scoring, and gateway routing for **live traffic**.
 
-This answers a different question: *an agent working in a repo needs to hand a
-sub-task to a worker model, on this machine, now — and needs to know whether
-that choice rests on anything.*
+This tool answers a local question: an agent working in a repo needs to hand a
+sub-task to a worker model on this machine now, and needs to verify that choice
+rests on evidence.
 
 ## The split that makes it portable
 
@@ -83,7 +76,7 @@ node scripts/route.mjs card path/to/task.mjs            # emit the card
 npm test                                                # the trust gate's tests
 ```
 
-Dry by default: without `--execute` no credential is read and no request is made.
+Without `--execute`, no credential is read and no request is made.
 
 ## Providers
 
@@ -93,18 +86,16 @@ Dry by default: without `--execute` no credential is read and no request is made
 | `chatgpt:` | `chatgpt.com/backend-api/codex/responses` | **subscription** |
 | `codex:` | shells out to the `codex` CLI | **subscription** |
 
-⚠ The `chatgpt:` route is the one `pi-imagen` uses. It is **not** the documented
-public API and may change without notice. `~/.codex/auth.json` is a password: it
-is read, sent only to chatgpt.com, and never printed or written to a receipt.
+⚠ The `chatgpt:` route is what `pi-imagen` uses. It is **not** a documented
+public API and may change without notice. `~/.codex/auth.json` is sent only to
+chatgpt.com; it is never printed or written to a receipt.
 
 ⚠ `codex:` is an **agent**, not a completion. It is confined to an empty
-directory with `--sandbox read-only`, because unconfined it goes exploring — one
-call in another repo returned that repo's git state instead of an answer, at
-roughly 24× a normal call's tokens. It also measured ~3× slower than `chatgpt:`.
+directory with `--sandbox read-only`. Unconfined, one call in another repo
+returned that repo's git state instead of an answer at roughly 24× a normal
+call's tokens. It measured ~3× slower than `chatgpt:`.
 
 ## ⚠⚠ The trust gate is the point
-
-A tool that always names a winner will name one from noise.
 
 | Status | When | Card says |
 |---|---|---|
@@ -114,18 +105,16 @@ A tool that always names a winner will name one from noise.
 | `CALIBRATED` | the winner's worst run beats the runner-up's best | names it |
 
 A model failing gates more than a third of the time is **disqualified whatever
-it scores** — a gate failure is not a low score, it is a result that cannot be
-used.
+it scores**; a gate failure cannot be used.
 
-**Report the range, not the mean.** The first real card compared two models whose
-means differed by 49%; their ranges overlapped, because one was
-near-deterministic and the other varied threefold run to run.
+**Report the range, not the mean.** Two models whose means differed by 49% had
+overlapping ranges because one was near-deterministic and the other varied
+threefold run to run.
 
-**Cost per accepted result, not per call.** A model that is cheap and fails half
-its gates is not cheap — you pay for the rejects too.
+**Cost per accepted result, not per call.** You pay for rejected runs too.
 
-**A subscription model is not cheap, it is unmeasured.** Mixed cost sources are
-never tie-broken on price.
+**A subscription model is unmeasured, not cheap.** Mixed cost sources are never
+tie-broken on price.
 
 ## ⚠⚠ A card expires; a benchmark does not
 
@@ -137,7 +126,8 @@ in 30 days.
 
 ## Task interface
 
-One file, one export. See [references/task-interface.md](references/task-interface.md).
+One file, one export. See
+[references/task-interface.md](references/task-interface.md).
 
 ```js
 export const task = {
@@ -156,17 +146,10 @@ export const task = {
 
 ## Scoring what cannot be counted
 
-`score` is the project's job, and counting is the easy half. The hard half is in
-[the task interface](references/task-interface.md) as a scar:
-
-> Told to put half its sections side by side, a model returned eight grids,
-> sixteen columns, and not one heading, paragraph or image inside them. Measured
-> as `row + grid: 8` that reads as a success. It was an empty skeleton.
-
-A regex cannot tell you whether copy is any good. `scripts/jev.mjs` asks a
-[System One model](https://docs.typesafe.ai) instead, and its primitives land
-exactly on the two fields the interface already has — a Noul is a gate, a Score
-is a metric:
+The empty skeleton at the top of this page is the problem: a regex can count
+eight grids, and cannot tell you the page is empty. `scripts/jev.mjs` calls a
+[System One model](https://docs.typesafe.ai) instead, where a Noul is a gate and
+a Score is a metric:
 
 ```js
 import { judge } from '../scripts/jev.mjs';
@@ -190,31 +173,24 @@ score: (output, input) => judge({
 }),
 ```
 
-Every gate and metric for one output goes in **one request** — independent
-questions run in parallel — so a full scoring costs about 400ms and a fraction
-of a cent. That matters more than it sounds: the trust gate is starved of runs,
-and cheap scoring is what buys the extra runs that narrow a range.
+Gates and metrics for one output run in **one request** in parallel, costing
+about 400ms and a fraction of a cent. Cheap scoring buys the extra runs needed
+to narrow a range.
 
-⚠⚠ **Jev for judgement, code for facts.** Every question asked adds the judge's
-own variance to a measurement whose entire point is variance. Put `parses`,
-`non_empty` and anything a regex settles in plain JS; spend questions only on
-what needs reading. On a neighbouring task the same sweep run five times found
-what it was looking for 3/3 every time and threw **0 to 2 false positives
-depending on the run** — a substring check in code removed them completely.
+⚠⚠ **Jev for judgement, code for facts.** Every prompt adds judge variance. Put
+`parses`, `non_empty`, and regex checks in plain JS. Across five runs on a
+neighboring task, a prompt found targets 3/3 times but threw **0 to 2 false
+positives depending on the run**; a substring check in code eliminated them.
 
 ⚠ **A judge needs its own calibration.** `node scripts/jev.check.mjs` scores
-output already known to be good and bad and refuses to pass unless every good
-beats every bad. Measured across four runs: margin **0.42–0.45**, and the gate
-correctly rejected the run that deleted blocks while letting through the run
-that changed nothing — a low score, not an unusable result.
+known good and bad outputs, requiring every good output to beat every bad
+output. Measured across four runs: margin **0.42–0.45**. The gate rejected a run
+that deleted blocks while passing a run that changed nothing.
 
 ## What it does not do
 
-- **No production traffic.** Use a gateway for that.
-- **No opinion about what good means.** The tool now supplies a *mechanism* for
-  judging (above), but the project still writes every gate and every level. A
-  generic metric is a wrong decision waiting to happen, and naming the levels is
-  where the thinking lives.
-- **Not billing authority.** It records reported costs. Other tools, other passes
-  and account use spend outside it.
-- **Not a licence to spend.** `--execute` is a deliberate act each time.
+- **No production traffic.** Use a gateway.
+- **No opinion about what good means.** The project specifies every gate and
+  level.
+- **Not billing authority.** Records reported costs only.
+- **Not a licence to spend.** `--execute` is required each time.
