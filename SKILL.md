@@ -58,6 +58,31 @@ whose means differed by 49%; their ranges overlapped, because one was
 near-deterministic and the other varied threefold run to run. A mean would have
 declared a winner from variance.
 
+## Scoring what a regex cannot settle
+
+`score` may be async, so it can ask. `scripts/jev.mjs` wraps a System One model
+and returns the interface's own shape: a Noul is a gate, a Score is a metric
+normalised to 0..1. Every gate and metric for one output goes in one request.
+
+```js
+score: (output, input) => judge({
+  state: { the_brief: input.brief, what_came_back: output },
+  gates: { answers_the_brief: 'The page answers `the_brief`, not some other brief.' },
+  metrics: { substance: { instructions: '…', levels: ['worst', 'middle', 'best'] } },
+}),
+```
+
+⚠⚠ **Jev for judgement, code for facts.** Every question adds the judge's own
+variance to a measurement whose point is variance. `parses`, `non_empty`, kept
+the shape — plain JS, free and exact. Spend questions only on what has to be
+read. Measured elsewhere: the same sweep five times found what it sought 3/3
+every run and threw **0 to 2 false positives**; a substring check removed them.
+
+⚠ **Calibrate the judge first** — `node scripts/jev.check.mjs`. A judge that
+rates everything 0.7 makes every card `NO_CLEAR_WINNER` about its own
+indifference, and the trust gate will report that as the models being
+indistinguishable.
+
 ## ⚠ Cost per accepted result, not per call
 
 A model that is cheap and fails half its gates is not cheap — you pay for the

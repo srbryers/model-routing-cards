@@ -4,11 +4,22 @@
 
 Most bake-off scripts always name a winner. This one often refuses.
 
-The first real card it produced compared two models whose mean scores differed
-by **49%**. It declined to prefer either, because their run *ranges overlapped*:
-one model was near-deterministic and the other varied threefold from run to run.
-A mean would have declared a winner from variance, and an agent would have
-routed real work on it for a month.
+**A measurement that looks fine and is wrong is worse than no measurement**,
+because you act on it. Two that happened here:
+
+- The first real card compared two models whose mean scores differed by **49%**.
+  It declined to prefer either, because their run *ranges overlapped* — one model
+  was near-deterministic, the other varied threefold from run to run. A mean
+  would have picked a winner from variance, and an agent would have routed real
+  work on it for a month.
+- A model told to put half its sections side by side returned eight grids,
+  sixteen columns, and **not one heading, paragraph or image inside them**.
+  Scored as `row + grid: 8`, that reads as a success. It was an empty skeleton,
+  and the metric was cheering.
+
+Hence a trust gate that can say *I don't know*, ranges instead of means, cost per
+**accepted** result, and — for the second kind of failure — scoring that can
+actually read the output.
 
 A routing card is a small JSON artifact a skill or agent can read, naming the
 model to use for one task — with a trust status attached. If the evidence is
@@ -34,6 +45,15 @@ model                            ok/run  gatefail  score (min–max)         $/a
 google/gemini-3.8-flash            3/3        0%  0.4053 (0.4042–0.4071)    $0.0219
 openai/gpt-5.5                     3/3        0%  0.2716 (0.1771–0.459)     $0.1452
 ```
+
+## Two files, on purpose
+
+`SKILL.md` is what a [Claude Code](https://code.claude.com) agent loads when the
+skill triggers: the operating rules, short enough to sit in a context window.
+This README is for you. They overlap, and the duplication is deliberate — an
+agent cannot cheaply follow a link mid-task.
+
+Using it as a skill is optional. Everything here runs as plain Node.
 
 ## ⚠⚠ This is not an eval platform and must not become one
 
