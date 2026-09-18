@@ -1,5 +1,5 @@
 {
-  "name": "model-routing",
+  "name": "model-routing-cards",
   "version": "0.1.0",
   "type": "module",
   "description": "Which model for this task, and whether to believe it.",
