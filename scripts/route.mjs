@@ -28,9 +28,8 @@ import { pathToFileURL } from 'node:url';
    inline in this file, which made the single piece of logic that decides whether
    to believe a measurement the single piece with no test. */
 import { buildCard, TRUST } from './card.mjs';
-import { call, parseModel, needsKey } from './providers.mjs';
+import { call, parseModel, keyNames, keyNameFor } from './providers.mjs';
 
-const API = 'https://openrouter.ai/api/v1/chat/completions';
 const CATALOG = 'https://openrouter.ai/api/v1/models';
 
 const argv = process.argv.slice(2);
@@ -54,8 +53,17 @@ function devVar(name, dir) {
     for (const f of ['.dev.vars', '.env']) {
       const p = resolve(here, f);
       if (!existsSync(p)) continue;
-      const m = readFileSync(p, 'utf8').match(new RegExp(`^${name}=(.*)$`, 'm'));
-      if (m) return m[1].replace(/^"(.*)"$/, '$1').trim();
+      /* ⚠⚠ THE LAST ASSIGNMENT WINS, AND `String.match` GIVES YOU THE FIRST. A
+         shell sourcing the file, and every dotenv, take the last assignment of a
+         repeated key. A first-wins read disagrees with them, and the script is
+         the one that is wrong. Measured in the wedding repo: `.env` carried
+         `ADMIN_PASSWORD` twice, the empty one first, so a first-wins read
+         returned '' and the run reported the key ABSENT while the shell had the
+         value the whole time. It cost an afternoon and two wrong diagnoses. */
+      const found = [...readFileSync(p, 'utf8').matchAll(new RegExp(`^${name}=(.*)$`, 'gm'))]
+        .map((m) => m[1].replace(/^"(.*)"$/, '$1').trim())
+        .filter(Boolean);
+      if (found.length) return found[found.length - 1];
     }
     const up = dirname(here);
     if (up === here) break;
@@ -106,11 +114,18 @@ if (cmd === 'run') {
     process.exit(0);
   }
 
-  /* ⚠ Only fetch a key for providers that need one. A task running entirely on
-     a subscription must not demand an OpenRouter key it will never use. */
-  const key = needsKey(specs) ? devVar('OPENROUTER_API_KEY', taskDir) : null;
+  /* ⚠ Only fetch a key for providers that need one, and ONE PER PROVIDER. A
+     task running entirely on a subscription must not demand an OpenRouter key it
+     will never use — and a card spanning two gateways needs both, because
+     handing one provider's credential to another reads as a bad key rather than
+     the wrong key. */
+  const keys = Object.fromEntries(
+    keyNames(specs).map((name) => [name, devVar(name, taskDir)]),
+  );
+  /* Only OpenRouter has a catalog to check against. */
+  const openrouterKey = keys.OPENROUTER_API_KEY ?? null;
 
-  if (key) {
+  if (openrouterKey) {
     const catalog = await fetch(CATALOG).then((r) => r.json());
     const priced = new Set(catalog.data.map((m) => m.id));
     for (const sp of specs) {
@@ -140,7 +155,14 @@ if (cmd === 'run') {
         state: 'sent',
       };
       try {
-        const res = await call(spec, { prompt, schema: task.schema, key });
+        const res = await call(spec, {
+          prompt,
+          schema: task.schema,
+          /* ⚠ THE KEY FOR THIS SPEC'S PROVIDER, not "the" key. Handing one
+             provider's credential to another reads as a bad key, not the
+             wrong key. */
+          key: keys[keyNameFor(spec.provider)] ?? null,
+        });
         receipt.ms = Date.now() - t0;
         Object.assign(receipt, res);
         if (res.state === 'completed') {

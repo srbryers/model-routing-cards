@@ -21,6 +21,7 @@ export function parseModel(entry) {
     for (const [prefix, provider] of [
       ['codex:', 'codex'],
       ['chatgpt:', 'chatgpt'],
+      ['subconscious:', 'subconscious'],
     ]) {
       if (entry.startsWith(prefix)) {
         return { provider, model: entry.slice(prefix.length), label: entry };
@@ -66,6 +67,52 @@ async function viaOpenRouter({ model, prompt, schema, key }) {
     cost_usd: typeof body.usage?.cost === 'number' ? body.usage.cost : null,
     cost_source: 'reported',
     tokens: { in: body.usage?.prompt_tokens ?? null, out: body.usage?.completion_tokens ?? null },
+  };
+}
+
+/* ── Subconscious ───────────────────────────────────────────────────────── */
+
+/**
+ * OpenAI-shaped, so this is the OpenRouter call with three differences that all
+ * cost something to learn.
+ *
+ * ⚠⚠ THE MODEL ID CARRIES ITS PROVIDER PREFIX. `deepseek-v4-flash-marathon`
+ * answers `403 model_not_allowed`; `subconscious/deepseek-v4-flash-marathon`
+ * answers 200. Ask `GET /v1/models` what it calls a model rather than typing
+ * what the docs call it — a wedding-repo sprint lost an end-to-end run to this.
+ *
+ * ⚠ IT REPORTS NO COST. There is no `usage.cost`, so the envelope carries
+ * tokens and `cost_source: 'computed'`, and the caller prices them from the
+ * task's own table. A `null` cost would make "cost per accepted result" — the
+ * number this whole tool exists to produce — silently unavailable.
+ *
+ * ⚠ AND ITS ENTITLEMENT IS NARROWER THAN ITS CATALOG. `/v1/models` lists models
+ * a given key may not call, so a 403 here means "not on this key", not "not a
+ * model". The status is reported rather than interpreted.
+ */
+async function viaSubconscious({ model, prompt, schema, key }) {
+  const res = await fetch('https://api.subconscious.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      ...(schema ? { response_format: { type: 'json_schema', json_schema: schema } } : {}),
+    }),
+  });
+  if (!res.ok) {
+    /* ⚠ Status only — some providers echo the request, key included. */
+    return { state: 'http_error', status: res.status };
+  }
+  const body = await res.json();
+  const u = body.usage ?? {};
+  return {
+    state: 'completed',
+    text: body.choices?.[0]?.message?.content ?? '',
+    finish_reason: body.choices?.[0]?.finish_reason ?? null,
+    cost_usd: null,
+    cost_source: 'computed',
+    tokens: { in: u.prompt_tokens ?? null, out: u.completion_tokens ?? null },
   };
 }
 
@@ -294,10 +341,39 @@ export async function call(spec, { prompt, schema, key }) {
   if (spec.provider === 'chatgpt') return viaChatGPT({ model: spec.model, prompt, schema });
   if (spec.provider === 'openrouter')
     return viaOpenRouter({ model: spec.model, prompt, schema, key });
+  if (spec.provider === 'subconscious')
+    return viaSubconscious({ model: spec.model, prompt, schema, key });
   throw new Error(`unknown provider "${spec.provider}"`);
 }
 
 /** Which providers in this task need a paid key before anything is sent. */
 export function needsKey(specs) {
-  return specs.some((s) => s.provider === 'openrouter');
+  return keyNames(specs).length > 0;
+}
+
+/**
+ * Which environment variable each provider's credential lives in — `null` for a
+ * provider whose auth belongs to a CLI.
+ *
+ * ⚠⚠ ONE KEY FOR ALL PROVIDERS WAS THE OLD ASSUMPTION, AND IT ONLY HELD WHILE
+ * THERE WAS ONE GATEWAY. A card comparing a model on OpenRouter against one on
+ * Subconscious needs both, and handing the wrong one over sends one provider's
+ * credential to another — which comes back as an auth failure and reads as a bad
+ * key rather than the wrong key.
+ */
+export function keyNameFor(provider) {
+  return (
+    { openrouter: 'OPENROUTER_API_KEY', subconscious: 'SUBCONSCIOUS_API_KEY' }[provider] ??
+    null
+  );
+}
+
+/** The distinct credential names these specs need, in order. */
+export function keyNames(specs) {
+  const out = [];
+  for (const s of specs) {
+    const name = keyNameFor(s.provider);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
 }
