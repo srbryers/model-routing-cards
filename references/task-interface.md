@@ -22,12 +22,10 @@ export const task = {
 
 ## ⚠⚠ Build the real prompt
 
-`prompt` must produce what the system actually sends. An approximation measures a
-copy of your pipeline rather than your pipeline — and the two diverge exactly
-when it matters. In the wedding project this meant importing the real
-`buildAgentPrompt`, which is also how a sprint's worth of targets was found to be
-missing from the prompt entirely: the harness rendered what the model really got,
-and the numbers were not in it.
+`prompt` must produce what the system actually sends. Approximations diverge
+exactly when it matters. In one project, importing the real `buildAgentPrompt`
+revealed that a sprint's worth of targets was missing from the prompt entirely:
+the harness rendered what the model received, and the numbers were not in it.
 
 ## ⚠⚠ Gates before metrics, and a gate failure is not a low score
 

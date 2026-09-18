@@ -16,7 +16,7 @@ now — and needs to know whether that choice rests on anything.
 
 ## The split that makes it portable
 
-A benchmark is never portable. The discipline around one is.
+A benchmark is not portable; the discipline around one is.
 
 | Owner | Supplies |
 |---|---|
@@ -35,8 +35,8 @@ node scripts/route.mjs card path/to/task.mjs              # emit the card
 ```
 
 Dry by default: without `--execute` no credential is read and no request is
-made. Receipts are per run, keyed by model, and a second `run` skips work
-already recorded unless `--force`.
+made. Receipts are keyed by model per run. A second `run` skips recorded work
+unless `--force`.
 
 ## ⚠⚠ The trust gate is the point
 
@@ -50,8 +50,8 @@ A tool that always names a winner will name one from noise. This one refuses:
 | `CALIBRATED` | top model's worst run beats the runner-up's best | names it |
 
 A model failing its gates more than a third of the time is **disqualified
-whatever it scores** — a gate failure is not a low score, it is a result that
-cannot be used.
+whatever it scores** — a gate failure produces an unusable result, not a low
+score.
 
 ⚠ **Report the range, not the mean.** The first real card compared two models
 whose means differed by 49%; their ranges overlapped, because one was
