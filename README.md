@@ -64,9 +64,35 @@ sometimes name one at random, and you will route real work on it for a month.
 Cards carry a date and expire after **30 days**, because model line-ups change
 and a stale card keeps recommending something that was retired.
 
-## Use it on your own job
+## Set it up on your own work
 
-Write one file. It says what the job is, and what a good answer looks like.
+The only hard part is writing the task file, and an agent sitting in your repo
+can already see the prompt you actually send. Hand it this:
+
+> Set up model-routing-cards in this repo.
+>
+> Clone https://github.com/srbryers/model-routing-cards and read
+> `references/task-interface.md`.
+>
+> Find a job here where we call a language model more than once — a classifier,
+> a summariser, a generator — and write a task file for it. Use the real prompt:
+> import the function that builds it rather than retyping an approximation.
+>
+> Put facts in `gates` (did it parse, is it empty) and judgements in `metrics`.
+>
+> Then dry-run it, tell me what it would cost, and stop. Do not pass `--execute`
+> until I say so.
+
+It writes the file, you approve the spend, you get a card.
+
+Using the real prompt is the part worth insisting on. An approximation measures
+a copy of your pipeline, and the two differ exactly when it matters — in one
+project, importing the real prompt builder is how a whole sprint's worth of
+instructions was found to be missing from what the model actually received.
+
+## Or write the task file yourself
+
+One file. It says what the job is, and what a good answer looks like.
 
 ```js
 export const task = {
