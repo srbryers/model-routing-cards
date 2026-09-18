@@ -39,18 +39,21 @@ openai/gpt-5.5                     3/3        0%  0.2716 (0.1771–0.459)     $0
 
 ## Read that card
 
-One model scored **49% higher on average**. The card still refused to pick it.
+Gemini averaged **49% higher** than GPT-5.5. The card recommends Gemini, but not
+for that reason.
 
-Look at the ranges. Gemini landed between 0.4042 and 0.4071 every time — almost
-the same answer three times over. GPT-5.5 landed anywhere from 0.1771 to 0.459.
-Its good runs and Gemini's good runs are in the same territory. The average was
-hiding a model that changes its mind.
+Look at the ranges. Gemini scored 0.4042 to 0.4071 across three runs. GPT-5.5
+scored 0.1771 to 0.459. Those overlap, so three runs do not establish that
+either model is better. The averages differ. The evidence does not.
 
-So the card says `NO_CLEAR_WINNER`, recommends the cheaper one, and tells you
-why.
+So the card reports `NO_CLEAR_WINNER` and falls back to cost: $0.0219 against
+$0.1452 per accepted result.
 
-**That refusal is the whole idea.** A tool that always names a winner will
-sometimes name one at random, and you will route real work on it for a month.
+The recommendation is the same either way. What you gain is knowing it rests on
+price rather than quality, and that more runs could change it.
+
+You can check every number above by running the two commands in the previous
+section.
 
 ## What a card can say
 
@@ -66,8 +69,9 @@ and a stale card keeps recommending something that was retired.
 
 ## Set it up on your own work
 
-The only hard part is writing the task file, and an agent sitting in your repo
-can already see the prompt you actually send. Hand it this:
+Writing the task file is the part that takes thought. An agent working in your
+repo can read the prompt you actually send, which is the detail most worth
+getting right. Hand it this:
 
 > Set up model-routing-cards in this repo.
 >
@@ -85,10 +89,11 @@ can already see the prompt you actually send. Hand it this:
 
 It writes the file, you approve the spend, you get a card.
 
-Using the real prompt is the part worth insisting on. An approximation measures
-a copy of your pipeline, and the two differ exactly when it matters — in one
-project, importing the real prompt builder is how a whole sprint's worth of
-instructions was found to be missing from what the model actually received.
+Why the real prompt matters: an approximation measures a copy of your pipeline,
+not your pipeline. In one project, importing the real prompt builder showed that
+a set of instructions added a week earlier was not reaching the model at all.
+Every test of those instructions had passed, because they tested the function
+that produced them rather than the text that was sent.
 
 ## Or write the task file yourself
 
@@ -122,19 +127,19 @@ node scripts/route.mjs card my-task.mjs            # write the card
 
 Nothing is sent and no key is read without `--execute`.
 
-## Two things it counts differently
+## How cost is counted
 
-**Cost per accepted result, not per call.** A model that is cheap and fails half
-its runs is not cheap. You paid for the failures too.
+**Per accepted result, not per call.** A model that is cheap and fails half its
+runs costs twice its headline price, because you paid for the failed runs too.
 
-**A subscription model is unmeasured, not free.** It is never tie-broken on
-price against a metered one.
+**A subscription model is recorded as unmeasured, not free.** Cards never break
+a tie on price when one model is metered and the other is not.
 
-## Scoring things you can't count
+## Scoring what you cannot count
 
-Counting is the easy half. A model asked to lay out a page once returned eight
-grids and sixteen columns with no words inside any of them — which a
-count-the-elements score read as a success.
+A `score` that counts elements can be satisfied by output that is empty. A model
+asked to lay out a page once returned eight grids and sixteen columns with no
+text inside any of them, and a count of layout elements read that as a success.
 
 If your `score` needs to judge rather than count, it can ask a model:
 [scoring by judgement](references/task-interface.md#scoring-by-judgement).
