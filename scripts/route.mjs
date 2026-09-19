@@ -109,7 +109,13 @@ if (cmd === 'run') {
    */
   if (!has('execute')) {
     const p = task.prompt(task.input);
-    console.log(`prompt    ${Math.round(p.length / 1024)}KB, sha ${sha(p)}`);
+    /* ⚠ A SHORT PROMPT IS NOT AN EMPTY ONE. `Math.round(n / 1024)` printed
+       "0KB" for anything under 512 characters — including the example task's
+       40-character prompt — directly above "nothing was sent", which reads as
+       though there was nothing to send. Characters below a kilobyte. */
+    const size =
+      p.length < 1024 ? `${p.length} chars` : `${(p.length / 1024).toFixed(1)}KB`;
+    console.log(`prompt    ${size}, sha ${sha(p)}`);
     console.log(`\n--execute to spend. No credential was read and nothing was sent.`);
     process.exit(0);
   }
