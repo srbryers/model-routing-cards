@@ -5,6 +5,11 @@ description: Decide which model should do a specific task, from measurement rath
 
 # Model routing
 
+For semantic decisions beyond worker-model selection, use the companion
+[Jev decision policy](skills/jev-decisions/SKILL.md). It covers classification,
+matching, proposal checks and bounded action selection using the shared adapter.
+That policy does not turn this routing-card tool into a production gateway.
+
 **A routing card says which model to use for one task, and whether to believe it.**
 
 ⚠⚠ **This is not an eval platform and must not grow into one.** Braintrust,
