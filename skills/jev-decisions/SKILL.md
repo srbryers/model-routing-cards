@@ -71,11 +71,14 @@ a new orchestration or evaluation platform for a one-off question.
 ## Current integration and budget
 
 Reuse the Model Routing Cards repository's `scripts/jev.mjs`, resolved through
-`MODEL_ROUTING_CARDS` or the known local checkout. The adapter currently exposes
-Noul gates and Score metrics through `judge()`. It does not yet expose Choice or
-preserve full answer distributions. Add those capabilities to the shared adapter
-when the first concrete use needs them; do not invent an API or duplicate it in
-each product. Decision calibration is separate from choosing a worker model.
+`MODEL_ROUTING_CARDS` or the known local checkout. The adapter exposes Noul gates
+and Score metrics through `judge()`, and returns the resolved model, token usage,
+and calculated input cost for the receipt. Call `assertJevBudget()` before a paid
+batch so the documented worst case fits the remaining authorization. It does not
+yet expose Choice or preserve full answer distributions. Add those capabilities
+to the shared adapter when the first concrete use needs them; do not invent an API
+or duplicate it in each product. Decision calibration is separate from choosing a
+worker model.
 
 Use existing spend authorization without requesting it again. This skill grants
 no additional API budget. When Jev is unavailable, uncalibrated for an automated
@@ -89,13 +92,14 @@ gate. Textual review summaries are not a substitute for seeing the asset.
 
 ## Basis
 
-Verified against official documentation on 2026-09-20:
+Verified against official documentation on 2026-09-22:
 
 - [Atomic questions and composition](https://docs.typesafe.ai/introduction)
 - [Choice](https://docs.typesafe.ai/primitives/choice)
 - [Noul](https://docs.typesafe.ai/primitives/noul)
 - [Score](https://docs.typesafe.ai/primitives/score)
 - [Confidence](https://docs.typesafe.ai/confidence)
+- [Models and pricing](https://docs.typesafe.ai/models)
 
 Refresh the relevant API documentation before changing the integration. Measure
 task suitability locally; vendor descriptions alone do not establish calibration.
