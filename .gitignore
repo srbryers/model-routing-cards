@@ -1,4 +1,5 @@
 runs/
 .dev.vars
 .env
+.jev.local.json
 node_modules/
