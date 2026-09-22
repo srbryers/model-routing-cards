@@ -138,6 +138,21 @@ a tie on price when one model is metered and the other is not.
 
 ## Scoring What You Cannot Count
 
+Jev execution needs `TYPESAFE_API_KEY`. The adapter checks the process environment
+first, then an env file named by `TYPESAFE_ENV_FILE`, then the `envFile` path in
+the ignored `.jev.local.json` beside this README. For a key already stored by
+another project, create that local file once:
+
+```json
+{ "envFile": "C:/path/to/existing/project/.env" }
+```
+
+Only the path is saved; the key stays in its existing file. Relative config paths
+resolve beside `.jev.local.json`, so importing Jev from another project or worktree
+does not depend on the caller's working directory. An explicit `TYPESAFE_ENV_FILE`
+should be absolute when shared across callers. Node 20.12+ supplies the env-file
+parser. Credentials are read only when `judge()` executes; dry runs remain dry.
+
 A `score` that counts elements can be satisfied by output that is empty. A model
 asked to lay out a page once returned eight grids and sixteen columns with no
 text inside any of them, and a count of layout elements read that as a success.

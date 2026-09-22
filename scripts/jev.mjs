@@ -93,16 +93,7 @@ const MAX_STATE_CHARS = 80_000;
  */
 const GATE_THRESHOLD = 0.5;
 
-function readKey() {
-  const key = process.env.TYPESAFE_API_KEY;
-  if (!key) {
-    throw new Error(
-      'TYPESAFE_API_KEY is not set. Jev scoring needs a TypeSafe key; ' +
-        'see https://docs.typesafe.ai. Scoring in plain JS needs no key at all.',
-    );
-  }
-  return key;
-}
+import { readJevKey } from './jev-key.mjs';
 
 /** Keep the newest of a long state rather than the oldest — outputs end with
  *  the part a judge most needs. */
@@ -150,7 +141,7 @@ export async function judge({ state, gates = {}, metrics = {}, threshold = GATE_
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${readKey()}`,
+      Authorization: `Bearer ${readJevKey()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ model: 'jev-latest', state: fit(state), questions }),

@@ -2,6 +2,7 @@
   "name": "model-routing-cards",
   "version": "0.1.0",
   "type": "module",
+  "engines": { "node": ">=20.12.0" },
   "description": "Which model for this task, and whether to believe it.",
   "scripts": {
     "test": "node --test scripts/*.test.mjs"
