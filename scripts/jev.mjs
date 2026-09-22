@@ -36,6 +36,50 @@
 
 const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 
+/**
+ * Published Jev 1.13 price and request ceiling, checked 2026-09-22.
+ * Output tokens are free. Keep the source beside the number so a caller never
+ * mistakes an old constant for current billing authority.
+ */
+export const JEV_PRICING = Object.freeze({
+  inputUsdPerMillion: 0.042,
+  maxInputTokensPerRequest: 64_000,
+  source: 'https://docs.typesafe.ai/models',
+  verifiedOn: '2026-09-22',
+});
+
+export function jevInputCostUsd(usage = {}) {
+  const inputTokens = Number(usage.input_tokens ?? 0);
+  if (!Number.isFinite(inputTokens) || inputTokens < 0) {
+    throw new Error('Jev usage.input_tokens must be a non-negative number');
+  }
+  return Number(((inputTokens / 1_000_000) * JEV_PRICING.inputUsdPerMillion).toFixed(12));
+}
+
+/**
+ * Refuse a paid batch unless even its documented worst case fits the caller's
+ * remaining authorization. Actual spend is calculated from response usage.
+ */
+export function assertJevBudget({ limitUsd, spentUsd = 0, maxRequests = 1 }) {
+  for (const [name, value] of Object.entries({ limitUsd, spentUsd, maxRequests })) {
+    if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number`);
+  }
+  if (!Number.isInteger(maxRequests)) throw new Error('maxRequests must be an integer');
+
+  const reserveUsd = Number((
+    maxRequests * JEV_PRICING.maxInputTokensPerRequest / 1_000_000
+      * JEV_PRICING.inputUsdPerMillion
+  ).toFixed(12));
+  const remainingUsd = Number((limitUsd - spentUsd).toFixed(12));
+  if (reserveUsd > remainingUsd) {
+    throw new Error(
+      `Jev budget refused: ${maxRequests} request(s) can cost up to $${reserveUsd.toFixed(6)}, ` +
+        `but only $${Math.max(0, remainingUsd).toFixed(6)} remains`,
+    );
+  }
+  return { limitUsd, spentUsd, remainingUsd, reserveUsd, maxRequests };
+}
+
 /** Jev's per-request ceiling, with room for the questions. */
 const MAX_STATE_CHARS = 80_000;
 
@@ -80,7 +124,7 @@ function fit(state) {
  *        name → an ordered ladder, worst first. Levels must describe concrete
  *        situations and stand on their own; "medium" is not a level.
  * @param {number} [spec.threshold]
- * @returns {Promise<{gates:object, metrics:object, raw:object, usage:object}>}
+ * @returns {Promise<{model:string|null,gates:object,metrics:object,raw:object,usage:object,cost:object}>}
  *          Shaped for `task.score`, with `raw` kept so a receipt can be audited
  *          without re-running anything.
  */
@@ -118,7 +162,20 @@ export async function judge({ state, gates = {}, metrics = {}, threshold = GATE_
   }
   const body = await res.json();
 
-  const out = { gates: {}, metrics: {}, raw: {}, usage: body.usage ?? {} };
+  const usage = body.usage ?? {};
+  const out = {
+    model: typeof body.model === 'string' ? body.model : null,
+    gates: {},
+    metrics: {},
+    raw: {},
+    usage,
+    cost: {
+      inputUsd: jevInputCostUsd(usage),
+      inputUsdPerMillion: JEV_PRICING.inputUsdPerMillion,
+      source: JEV_PRICING.source,
+      verifiedOn: JEV_PRICING.verifiedOn,
+    },
+  };
   for (const [id, answer] of Object.entries(body.answers ?? {})) {
     if (id.startsWith('gate_')) {
       const name = id.slice(5);
