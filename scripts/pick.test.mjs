@@ -627,3 +627,56 @@ for (const kind of Object.keys(policy.kinds).filter(k => policy.kinds[k].tier ==
     assert.match(d.why.join(' '), /weekly headroom/);
   });
 }
+
+test('a repo or file rule naming a metered route is offered with room to spare, and still needs approval', () => {
+  const p = structuredClone(policy); p.repos['test/metered'] = { rules: override('fw-kimi-k3').rules };
+  for (const deps of [{ override: override('fw-kimi-k3') }, { policy: p, repo: 'test/metered' }]) {
+    const d = choose({}, { quota: changed(20, 20), ...deps });
+    assert.equal(d.route, 'fw-kimi-k3'); assert.equal(d.status, 'needs_approval');
+    assert.equal(d.spawn, null); assert.equal(d.spendApproved, false);
+    assert.doesNotMatch(d.why.join(' '), /ceiling|metered fallback/);
+    assert.equal(choose({ approvedRoutes: ['fw-kimi-k3'] }, { quota: changed(20, 20), ...deps }).status, 'ok');
+  }
+});
+test('ceiling: a main thread at exactly 95% Claude weekly loses Claude; at 94.9% it keeps it', () => {
+  const full = changed(10, 50, 95);
+  assert.ok(['astra', 'sol'].includes(choose({ mainThread: true }, { quota: full }).route));
+  const tier3 = choose({ kind: 'architecture', mainThread: true }, { quota: full });
+  assert.equal(tier3.status, 'blocked'); assert.match(tier3.why.join(' '), /claude weekly 95% ≥ 95% ceiling: pool exhausted/);
+  assert.equal(choose({ kind: 'architecture', mainThread: true }, { quota: changed(10, 50, 94.9) }).route, 'opus');
+});
+test('ceiling: with one window exhausted and another missing, --require-quota still sees the ceiling', () => {
+  const partial = changed(96, 19); partial.claude.windows = partial.claude.windows.filter(w => w.kind === 'five-hour');
+  const tier3 = choose({ kind: 'architecture', requireQuota: true }, { quota: partial });
+  assert.equal(tier3.status, 'blocked'); assert.match(tier3.why.join(' '), /claude 5h 96% ≥ 95% ceiling/);
+  assert.doesNotMatch(tier3.why.join(' '), /required quota missing/);
+  // Tier 2 leaves Claude, so the missing Claude weekly window no longer matters.
+  const tier2 = choose({ requireQuota: true }, { quota: partial });
+  assert.equal(tier2.status, 'ok'); assert.ok(['astra', 'sol'].includes(tier2.route));
+  assert.match(tier2.notes.join(' '), /quota unknown: hard stops not applied/);
+  // With Codex unreadable as well, the chosen pool has no quota and the strict flag blocks.
+  delete partial.codex;
+  const strict = choose({ requireQuota: true }, { quota: partial });
+  assert.equal(strict.status, 'blocked'); assert.match(strict.why.join(' '), /required quota missing for codex/);
+});
+test('ceiling: model-specific windows are ignored, and cannot hide a full pool', () => {
+  const modelWindow = (usedPercent, kind) => ({ label: 'Model weekly', kind, model: 'fable', usedPercent, resetsAt: '2026-10-08T17:00:00.000Z' });
+  const noisy = changed(59, 19);
+  noisy.claude.windows.push(modelWindow(99, 'weekly'), modelWindow(99, 'five-hour')); noisy.codex.windows.push(modelWindow(99, 'weekly'));
+  const d = choose({ kind: 'architecture' }, { quota: noisy });
+  assert.equal(d.route, 'opus'); assert.equal(d.quota.claude.weekly.used, 33);
+  assert.doesNotMatch(d.why.join(' '), /ceiling/);
+  assert.ok(['sonnet', 'astra', 'sol'].includes(choose({}, { quota: noisy }).route));
+  const full = changed(59, 96); full.codex.windows.push(modelWindow(1, 'weekly'));
+  assert.equal(choose({}, { quota: full }).route, 'sonnet');
+});
+test('kind descriptions carry the precedence Jev needs', () => {
+  const text = id => policy.kinds[id].description;
+  for (const id of ['ios', 'ui-visual', '3d-work', 'data-contract', 'user-facing-copy']) assert.match(text(id), /Wins over .*write-tests, quick-edit, bounded-build/);
+  for (const id of ['write-tests', 'quick-edit', 'bounded-build']) assert.match(text(id), /Domain kinds .* win/);
+  assert.match(text('write-tests'), /iOS tests are ios/); assert.match(text('migration'), /Wins over multi-step-coding/);
+  assert.match(text('first-pass-review'), /Muse or tier-1/); assert.match(text('routine-review'), /tier-2/);
+  assert.match(text('high-risk-review'), /Wins over the other review kinds/);
+  assert.match(text('simple-bug-fix'), /known/); assert.match(text('simple-bug-fix'), /hard-bug-fix/);
+  assert.match(text('hard-bug-fix'), /even if the symptom reproduces/);
+});

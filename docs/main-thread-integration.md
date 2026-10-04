@@ -147,6 +147,12 @@ subscriptions are exhausted, `pick` returns `blocked` and you decide.
 Exclusions, machine limits and repo rules never lead to metered. Tier 3 has no
 metered fallback.
 
+A repo or file rule that names a metered route (for example Prelude's
+`gemini-flash`) is different: it is a deliberate choice of a model no
+subscription offers. `pick` returns it even while subscriptions have room, and
+it still needs spend approval (`needs_approval`). The ceiling governs only the
+automatic fallback.
+
 Gemini-specific work can use `gemini-pro`, `gemini-flash` or `gemini-flash-lite`
 through `acp-gemini`: Gemini CLI on Vertex AI, billed per token to a Google Cloud
 project. These routes run on Mac Studio and use agent-managed `medium` reasoning.

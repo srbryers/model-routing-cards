@@ -36,8 +36,13 @@ its open questions. Benchmark evidence does not change policy by itself.
 
 1. Edit the JSON and update `updated`. Keep kind IDs stable; each description is
    read by the classifier. Keep descriptions short and plain, and make sure no two
-   kinds claim the same work. After changing one, run
-   `node scripts/classify.check.mjs --execute` (13 live Jev calls, capped at $0.05).
+   kinds claim the same work. Jev reads only the descriptions, so write the
+   precedence into them: domain kinds (`ios`, `ui-visual`, `3d-work`, `data-contract`,
+   `user-facing-copy`) win over activity kinds (`write-tests`, `quick-edit`,
+   `bounded-build`, `multi-step-coding`); `migration` wins over `multi-step-coding`;
+   the higher-risk review kind wins; a bug whose cause must be found is
+   `hard-bug-fix`, even if it reproduces. After changing one, run
+   `node scripts/classify.check.mjs --execute` (17 live Jev calls, capped at $0.05).
    Without `--execute` it only lists the briefs. Kind candidates and fallbacks must belong to their paid tier. An exception
    requires `crossTier: true` and a nonempty `crossTierReason`; local/image kinds
    declare these explicitly. External routes cannot appear in paid tiers.
@@ -302,7 +307,11 @@ Tier 3 stops when limited; local and image kinds have no automatic paid list.
 The order is unmeasured and no card backs it, as `why` states. Cards cannot
 reorder an automatic paid fallback. Subscriptions always stay ahead of it.
 A repo/file rule may explicitly select a metered route, subject to the same
-eligibility checks.
+eligibility checks. This is intended and is not governed by the ceiling. The
+95% ceiling controls only the automatic metered fallback. A repo rule that names
+a model no subscription offers (for example Prelude's `gemini-flash`) is a
+deliberate choice, so it is offered even while subscriptions have room. It still
+needs spend approval: the result is `needs_approval`.
 
 Chosen metered workers return `status: "needs_approval"` and exit **5**, including
 `approval: { spawnArgv, costPer1M, route }` and `spawn: null`. The preview is for

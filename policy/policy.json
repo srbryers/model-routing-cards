@@ -424,7 +424,7 @@
     "bounded-build": {
       "tier": 1,
       "reasoning": "high",
-      "description": "One new feature slice, endpoint or script from a clear brief, in one or two files.",
+      "description": "One new feature slice, endpoint or script from a clear brief, in one or two files. Domain kinds (iOS, UI, 3D, data contract, user-facing copy) win.",
       "candidates": [
         "muse"
       ],
@@ -435,7 +435,7 @@
     "quick-edit": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Renames, small scoped refactors, lint and type fixes. No new behavior.",
+      "description": "Renames, small scoped refactors, lint and type fixes. No new behavior. Domain kinds (iOS, UI, 3D, data contract, user-facing copy) win.",
       "candidates": [
         "muse"
       ],
@@ -446,7 +446,7 @@
     "write-tests": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Adding or changing tests only. No product code changes. A task that also fixes product code is not this kind: it is a bug fix or multi-step coding.",
+      "description": "Adding or changing tests only. No product code changes. A task that also fixes product code is a bug fix or multi-step coding. Domain kinds (iOS, UI, 3D, data contract, user-facing copy) win: iOS tests are ios.",
       "candidates": [
         "muse"
       ],
@@ -479,7 +479,7 @@
     "first-pass-review": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "First review of a diff, never the merge gate.",
+      "description": "A first look at Muse or tier-1 output, never the merge gate. A higher-risk review kind wins.",
       "candidates": [
         "muse"
       ],
@@ -490,7 +490,7 @@
     "simple-bug-fix": {
       "tier": 1,
       "reasoning": "high",
-      "description": "Fix a bug whose failure is known or has a clear reproduction. Includes adding a test for it and fixing the code it shows.",
+      "description": "Fix a bug whose cause is known, or obvious from the repro, with a clear and bounded fix. Includes adding a test for it. If the cause must be found, it is hard-bug-fix.",
       "candidates": [
         "muse"
       ],
@@ -501,7 +501,7 @@
     "multi-step-coding": {
       "tier": 2,
       "reasoning": "high",
-      "description": "A larger change across several files or long-running coding work. Includes adding tests and fixing the code they expose across several modules.",
+      "description": "A larger change across several files or long-running coding work. Includes adding tests and fixing the code they expose across several modules. Migration and the domain kinds win.",
       "candidates": [
         "sonnet",
         "astra",
@@ -512,7 +512,7 @@
     "migration": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Moving code to a new library, framework or data layout, and large refactors.",
+      "description": "Moving code to a new API, framework, version or structure, and large refactors. Wins over multi-step-coding when the move is the main goal.",
       "candidates": [
         "sonnet",
         "astra",
@@ -523,7 +523,7 @@
     "hard-bug-fix": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Diagnose and fix a bug with no clear reproduction or an unknown cause. Includes writing tests to find unknown bugs and fixing what they expose.",
+      "description": "Fix a bug whose cause is unknown and must be investigated, even if the symptom reproduces. If the brief says to find the cause, it is this kind. Includes writing tests to find unknown bugs and fixing what they expose.",
       "candidates": [
         "sonnet",
         "astra",
@@ -545,7 +545,7 @@
     "routine-review": {
       "tier": 2,
       "reasoning": "medium",
-      "description": "Review of Muse or tier-2 work.",
+      "description": "Review of tier-2 work. high-risk-review wins when the risk is higher.",
       "candidates": [
         "sonnet",
         "astra",
@@ -570,7 +570,7 @@
     "3d-work": {
       "tier": 2,
       "reasoning": "high",
-      "description": "3D modeling, geometry, materials, shaders and spatial work.",
+      "description": "3D modeling, geometry, materials, shaders and spatial work. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
       "candidates": [
         "sonnet",
         "astra",
@@ -581,7 +581,7 @@
     "ui-visual": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "UI and visual design or build where the design is not settled: new screens, layout, look and feel.",
+      "description": "UI and visual design or build where the design is not settled: new screens, layout, look and feel. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
       "candidates": [
         "opus"
       ],
@@ -590,7 +590,7 @@
     "ios": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "Work inside an iOS app: Swift, Xcode, simulator, device and App Store problems.",
+      "description": "Work inside an iOS app: Swift, Xcode, simulator, device and App Store problems, including iOS tests. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
       "candidates": [
         "opus"
       ],
@@ -608,7 +608,7 @@
     "high-risk-review": {
       "tier": 3,
       "reasoning": "high",
-      "description": "UI, security or data-contract review, and anything about to merge to a deploy branch.",
+      "description": "Review of security, data contracts or UI, and anything about to merge to a deploy branch. Wins over the other review kinds.",
       "candidates": [
         "opus"
       ],
@@ -617,7 +617,7 @@
     "data-contract": {
       "tier": 3,
       "reasoning": "high",
-      "description": "Design or change data contracts, schemas or API shapes.",
+      "description": "Design or change data contracts, schemas or API shapes. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
       "candidates": [
         "opus"
       ],
@@ -654,7 +654,7 @@
     "user-facing-copy": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Writing or rewriting copy a product's users read: onboarding text, chat copy, error messages and marketing. Not button labels, field names or menu items.",
+      "description": "Writing or rewriting copy a product's users read: onboarding text, chat copy, error messages and marketing. Not button labels, field names or menu items. Wins over docs, write-tests, quick-edit, bounded-build and multi-step-coding.",
       "candidates": [
         "muse"
       ],

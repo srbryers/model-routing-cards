@@ -48,6 +48,15 @@ export const CASES = [
     expect: ['user-facing-copy'] },
   { brief: 'Review this diff for security problems before it merges to the production branch.',
     expect: ['high-risk-review'] },
+  // Ambiguous on purpose: each sits between two kinds, and the descriptions must break the tie.
+  { brief: 'The checkout page crashes every time a coupon is applied. It reproduces every time, but we do not know why. Find the cause and fix it.',
+    expect: ['hard-bug-fix'] },
+  { brief: 'The retry loop stops one attempt early: it uses i < max where the repro shows it needs i <= max. Change that one line.',
+    expect: ['simple-bug-fix'] },
+  { brief: 'Add unit tests for the settings screen view model in our iOS app. Tests only, no app code changes.',
+    expect: ['ios'] },
+  { brief: 'Move the billing module from React Router 5 to React Router 7: update its routes, hooks and imports.',
+    expect: ['migration'] },
 ];
 
 /** Exact request size per brief, measured without a key or a network call. */
