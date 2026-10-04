@@ -38,6 +38,15 @@ google/gemini-3.8-flash            3/3        0%  0.4053 (0.4042–0.4071)    $0
 openai/gpt-5.5                     3/3        0%  0.2716 (0.1771–0.459)     $0.1452
 ```
 
+## Install
+
+```sh
+npm i -g github:srbryers/model-routing-cards#v0.2.0
+model-routing card example-task.mjs
+```
+
+`node scripts/route.mjs` still works unchanged.
+
 ## Read That Card
 
 Gemini averaged **49% higher** than GPT-5.5. The card recommends Gemini, but not
@@ -164,8 +173,18 @@ If your `score` needs to judge rather than count, it can ask a model:
 
 - [Writing a task file](references/task-interface.md)
 - [Using it from Claude Code](SKILL.md). Working as a skill is optional.
-- Not a replacement for Braintrust, Promptfoo or an LLM gateway. Those route
-  live production traffic. This answers a smaller question, on your machine,
-  about one job.
+
+## What This Is Not
+
+**This routes agent work, not API traffic.** It decides which worker, model
+and machine gets a task, when the task is handed out, using measured evidence,
+your policy and live quota. Every decision says what it rests on, and it never
+names a winner from noise.
+
+It does not sit in a request path, proxy calls, or retry and fail over per
+request. Gateways (OpenRouter, LiteLLM, Prelude's `llm-proxy`) do that, and
+can read this tool's policy as config.
+
+It is not an eval platform: no dashboards, tracing or online scoring.
 
 MIT.

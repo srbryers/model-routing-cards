@@ -1,11 +1,36 @@
 {
   "name": "model-routing-cards",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "engines": { "node": ">=20.12.0" },
   "description": "Which model for this task, and whether to believe it.",
+  "bin": { "model-routing": "bin/model-routing.mjs" },
+  "exports": {
+    ".": "./scripts/card.mjs",
+    "./card": "./scripts/card.mjs",
+    "./jev": "./scripts/jev.mjs",
+    "./clef": "./scripts/clef.mjs",
+    "./providers": "./scripts/providers.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/",
+    "!bin/*.test.mjs",
+    "scripts/*.mjs",
+    "!scripts/*.test.mjs",
+    "references/",
+    "skills/",
+    "tasks/",
+    "!tasks/runs",
+    "SKILL.md",
+    "README.md",
+    "routing-profile.md",
+    "example-task.mjs",
+    "seed-from-today.mjs",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "node --test scripts/*.test.mjs"
+    "test": "node --test scripts/*.test.mjs bin/*.test.mjs"
   },
   "license": "MIT"
 }

@@ -1,6 +1,6 @@
 ---
 name: model-routing
-description: Decide which model should do a specific task, from measurement rather than habit, and record the decision as a routing card with a trust status. Use when picking a worker model for a recurring sub-task, when a model choice is being made on vibes, or when an existing card has expired. Not for production traffic routing.
+description: Decide which model should do a specific task, from measurement rather than habit, and record the decision as a routing card with a trust status. Use when picking a worker model for a recurring sub-task, when a model choice is being made on vibes, or when an existing card has expired. Not for routing API traffic.
 ---
 
 # Model routing
@@ -12,12 +12,16 @@ That policy does not turn this routing-card tool into a production gateway.
 
 **A routing card says which model to use for one task, and whether to believe it.**
 
-⚠⚠ **This is not an eval platform and must not grow into one.** Braintrust,
-Promptfoo, DeepEval and TrueFoundry already do production evaluation, tracing,
-online scoring and gateway routing, and they do it better than a local script
-will. They route **live traffic**. This answers a different question: an agent
-working in a repo needs to hand a sub-task to a worker model, on this machine,
-now — and needs to know whether that choice rests on anything.
+**This routes agent work, not API traffic.** It decides which worker, model
+and machine gets a task, when the task is handed out, using measured evidence,
+your policy and live quota. Every decision says what it rests on, and it never
+names a winner from noise.
+
+It does not sit in a request path, proxy calls, or retry and fail over per
+request. Gateways (OpenRouter, LiteLLM, Prelude's `llm-proxy`) do that, and
+can read this tool's policy as config.
+
+It is not an eval platform: no dashboards, tracing or online scoring.
 
 ## The split that makes it portable
 
@@ -105,7 +109,7 @@ regression benchmark, or freeze a benchmark and call it routing.
 
 ## What it does not do
 
-- **No production traffic.** Use a gateway for that.
+- **No request-path routing.** Use a gateway for that.
 - **No scoring help.** The project writes `score`; the tool cannot know what
   good looks like for your task, and pretending otherwise is how a generic
   metric becomes a wrong decision.
