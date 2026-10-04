@@ -550,3 +550,21 @@ test('a superseded wildcard route cannot rescue an override that excludes every 
   ] };
   invalid(validateOverride(override, policy), /exclusions remove every route for docs/);
 });
+
+test('fieldEvidence defaults and validation preserve a head-to-head readiness threshold', () => {
+  assert.deepEqual(policy.fieldEvidence, { minOutcomesPerRoute: 5, minRoutes: 2 });
+  for (const value of [undefined, null, [], {}, { minOutcomesPerRoute: 5 },
+    { minOutcomesPerRoute: 5, minRoutes: 2, winner: true }]) {
+    const p = copy(); p.fieldEvidence = value;
+    invalid(validatePolicy(p), /fieldEvidence/);
+  }
+  for (const key of ['minOutcomesPerRoute', 'minRoutes']) {
+    for (const value of [0, -1, 1.5, '5', null, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1,
+      ...(key === 'minRoutes' ? [1] : [])]) {
+      const p = copy(); p.fieldEvidence[key] = value;
+      invalid(validatePolicy(p), new RegExp(`fieldEvidence.${key}`));
+    }
+  }
+  const p = copy(); p.fieldEvidence = { minOutcomesPerRoute: 1, minRoutes: 3 };
+  assert.deepEqual(validatePolicy(p), { ok: true, errors: [] });
+});

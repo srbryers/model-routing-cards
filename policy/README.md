@@ -22,6 +22,7 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `review` | Review kinds require a different vendor from the author. |
 | `cards` | `byKind` maps kinds to card files. Fresh `CALIBRATED` winners may select an allowed candidate; measured cheaper results can break a pace tie. The 30-day limit matches `TRUST.STALE_DAYS`. |
 | `classifier` | `minProbability: 0.6` and `minMargin: 0.15` decide when Jev must defer. Both are validated from 0 to 1. |
+| `fieldEvidence` | Outcome counts needed to justify a real bake-off. Never used for route selection or card trust. |
 | `machines` | `default` names the preferred machine; other entries are machine IDs with descriptions. |
 | `repos` | Repo rules keyed by lowercase GitHub `owner/name`; each has `rules` and optional `machines`. |
 
@@ -196,6 +197,60 @@ available only on Mac Studio. `pick` returns a plan and notes that the local ser
 and checked before dispatch. It does not run the liveness command or add network
 probes to a dry pick. Image work names Codex image tooling; `pi-imagen` is a tool
 note, not an additional worker route.
+
+## Field evidence
+
+```json
+"fieldEvidence": {
+  "minOutcomesPerRoute": 5,
+  "minRoutes": 2
+}
+```
+
+Both fields are required integers. `minOutcomesPerRoute` must be at least **1**;
+`minRoutes` must be at least **2**, because a head-to-head needs two routes.
+Unknown fields are rejected.
+
+`outcomes` groups logged decisions by kind and route. It shows decisions, latest
+recorded outcomes, pass/partial/fail/abandoned counts, and separate basis counts
+for decisions and outcomes. The basis columns include `trial`, `policy`, `card`
+and `card-cheaper`; card decisions are not relabeled as policy. Decisions without
+a selected route do not enter the table. `--kind` filters the summary; `--json`
+returns the same counts, thresholds, readiness and next steps as structured data.
+
+A kind is ready when at least `minRoutes` routes each have
+`minOutcomesPerRoute` outcomes whose result is `pass`, `partial` or `fail`.
+Abandoned work stays in its own column and does not count toward readiness.
+Re-recording replaces the old line in the summary, so one decision
+never adds two outcomes. Last append wins, even if its timestamp is older.
+If the decision log repeats an ID, both commands use its last appended decision,
+including that decision's metadata and brief hash.
+Readiness is shown for kinds seen in the decision log, or the requested `--kind`.
+
+When ready, write or extend `tasks/<task-id>.mjs`, using the task ID from the
+`cards.byKind` card basename, then run
+`model-routing run <task> --execute`. If there is no mapping, the next step includes
+adding one. This is an instruction to run a real bake-off, not a route recommendation.
+
+⚠ Different tasks went to different routes. These outcomes are confounded, not
+measurements. They stay in `outcomes.jsonl`, apart from bake-off receipts.
+`card.mjs`, `route.mjs` and the card logic in `pick` never read them. Outcome counts,
+gate facts and optional Jev probabilities cannot change card trust or selection.
+
+The main thread records after verification. Gates come only from code via flags
+or a JSON object of `"pass"`/`"fail"` values. Jev can separately check whether the
+result meets the matching brief, after budget approval. It supplies no factual
+gates and does not override the recorded result. Missing model or usage data is
+stored as `null`, never invented or treated as free. Text and credentials are not
+stored; notes are limited to 500 characters and must not contain secrets.
+The brief must fit within 40% of the 80,000-character text budget or the check is
+refused. The result uses the remaining budget, keeping its beginning and end with
+an omission marker in the middle. The complete brief is always sent.
+
+Both logs use the shared state reader and lock. Unreadable lines are skipped,
+including outcomes with invalid results or bases and routed decisions with invalid bases;
+the summary reports the count for each log in text and JSON. A new append starts
+on its own line even when a killed writer left an incomplete final line.
 
 ## State
 

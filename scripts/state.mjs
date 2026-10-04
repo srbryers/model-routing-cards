@@ -13,27 +13,43 @@ function readOptional(file, fallback) {
 }
 export function readState(dir) {
   const alternation = {};
-  let unreadableLogLines = 0;
+  const { records, unreadableLogLines } = readStateLog(dir, 'decisions.jsonl');
   // ⚠ The log is the alternation record: a crash cannot advance a trial without logging it.
-  for (const line of readOptional(join(dir, 'decisions.jsonl'), '').split('\n').filter(Boolean)) {
-    let decision;
-    try { decision = JSON.parse(line); }
-    catch { unreadableLogLines++; continue; }
-    if (!decision || typeof decision !== 'object' || Array.isArray(decision)) { unreadableLogLines++; continue; }
+  for (const decision of records) {
     if (decision.status === 'ok' && decision.basis === 'trial') alternation[decision.kind] = decision.route;
   }
   return { alternation, unreadableLogLines, limits: JSON.parse(readOptional(join(dir, 'limits.json'), '{}')) };
+}
+export function readDecisions(dir) {
+  return readStateLog(dir, 'decisions.jsonl').records;
+}
+export function readStateLog(dir, file) {
+  const records = [];
+  let unreadableLogLines = 0;
+  for (const line of readOptional(join(dir, file), '').split('\n').filter(Boolean)) {
+    try {
+      const record = JSON.parse(line);
+      if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('invalid record');
+      records.push(record);
+    } catch { unreadableLogLines++; }
+  }
+  return { records, unreadableLogLines };
+}
+export function appendStateLog(dir, file, record) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const path = join(dir, file);
+  // ⚠ Preserve a new record even when a killed writer left an unterminated line.
+  const previous = readOptional(path, '');
+  const separator = previous && !previous.endsWith('\n') ? '\n' : '';
+  appendFileSync(path, separator + JSON.stringify(record) + '\n', { mode: 0o600 });
 }
 export function logDecision(dir, decision, brief) {
   const record = { ...decision, ...(brief === undefined ? {} : { brief: {
     sha256: createHash('sha256').update(brief).digest('hex'), length: brief.length,
   } }) };
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
   // ⚠ Dispatch arguments contain task text and private identifiers. Keep them only in stdout.
   const logged = { ...record, ...(record.spawn ? { spawn: { missing: record.spawn.missing } } : {}) };
-  const previous = readOptional(join(dir, 'decisions.jsonl'), '');
-  const separator = previous && !previous.endsWith('\n') ? '\n' : '';
-  appendFileSync(join(dir, 'decisions.jsonl'), separator + JSON.stringify(logged) + '\n', { mode: 0o600 });
+  appendStateLog(dir, 'decisions.jsonl', logged);
   return record;
 }
 export function setLimit(dir, route, hours, now) {
