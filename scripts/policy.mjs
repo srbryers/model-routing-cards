@@ -10,6 +10,7 @@ const KIND_IDS = [
   'simple-bug-fix', 'multi-step-coding', 'migration', 'hard-bug-fix', 'ci-terminal',
   'routine-review', 'skill-workflow', '3d-work', 'ui-visual', 'ios', 'architecture',
   'high-risk-review', 'data-contract', 'bulk-text', 'image-generation',
+  'user-facing-copy', 'visual-implementation',
 ];
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const has = (o, k) => object(o) && Object.hasOwn(o, k);
@@ -48,7 +49,7 @@ function capFor(id, route) {
 
 function checkRouteReasoning(ids, level, routes, path, check) {
   for (const id of ids) {
-    if (!has(routes, id) || level === null) continue;
+    if (!has(routes, id) || level === null || routes[id]?.type === 'external') continue;
     const cap = capFor(id, routes[id]);
     check(!cap || LEVELS.indexOf(level) <= LEVELS.indexOf(cap),
       `${path}: ${id} reasoning ${level} exceeds cap ${cap}`);
@@ -98,14 +99,23 @@ export function validatePolicy(policy) {
   check(pools.claude?.requiredProvider === 'claude-code', 'pools.claude.requiredProvider must be claude-code');
   for (const [id, route] of Object.entries(routes)) {
     const path = `routes.${id}`;
+    if (route?.type === 'external') {
+      if (!fields(route, path, ['type', 'instruction', 'requiresSpendApproval', 'vendor', 'pool'])) continue;
+      check(nonempty(route.instruction), `${path}.instruction is required`);
+      check(typeof route.requiresSpendApproval === 'boolean', `${path}.requiresSpendApproval must be boolean`);
+      check(['anthropic', 'openai', 'meta', 'local', 'google'].includes(route.vendor), `${path}.vendor is unsupported`);
+      check(route.pool === 'metered' && has(pools, route.pool), `${path}: external routes require the metered pool`);
+      continue;
+    }
     if (!fields(route, path, ['provider', 'model', 'machines', 'pool', 'vendor'],
-      ['maxReasoning', 'runningByDefault', 'livenessCheck'])) continue;
+      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck'])) continue;
+    check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
     check(nonempty(route.model), `${path}.model is required`);
     check(!String(route.model).includes('-contributor'), `${path}.model: -contributor models are forbidden`);
     list(route.machines, `${path}.machines`, Object.keys(machines), 1);
     check(has(pools, route.pool), `${path}.pool: unknown pool ${route.pool}`);
-    check(['anthropic', 'openai', 'meta', 'local'].includes(route.vendor), `${path}.vendor is unsupported`);
+    check(['anthropic', 'openai', 'meta', 'local', 'google'].includes(route.vendor), `${path}.vendor is unsupported`);
     const requiredProvider = route.pool === 'claude' ? 'claude-code' : pools[route.pool]?.requiredProvider;
     check(!requiredProvider || route.provider === requiredProvider, `${path}: pool ${route.pool} requires provider ${requiredProvider}`);
     if (muse(id, route)) check(Array.isArray(route.machines) && route.machines.every(m => m === 'mac-studio'), `${path}: Muse is mac-studio only`);
@@ -243,22 +253,30 @@ function validateRules(override, policy, versioned) {
   const seen = new Set();
   for (const [i, rule] of (Array.isArray(override.rules) ? override.rules : []).entries()) {
     const path = `override.rules[${i}]`;
-    if (!fields(rule, path, ['kinds', 'route', 'source', 'why'], ['reasoning'])) continue;
-    const kinds = list(rule.kinds, `${path}.kinds`, Object.keys(policy.kinds), 1);
+    if (!fields(rule, path, ['kinds', 'source', 'why'], ['route', 'reasoning', 'excludeRoutes', 'note'])) continue;
+    const kinds = list(rule.kinds, `${path}.kinds`, [...Object.keys(policy.kinds), '*'], 1);
+    check(!kinds.includes('*') || kinds.length === 1, `${path}: wildcard * must be used alone`);
     for (const kind of kinds) {
-      check(has(policy.kinds, kind), `${path}: unknown kind ${String(kind)}`);
+      check(kind === '*' || has(policy.kinds, kind), `${path}: unknown kind ${String(kind)}`);
       check(!seen.has(kind), `${path}: duplicate rule for kind ${String(kind)}`);
       seen.add(kind);
     }
-    check(has(policy.routes, rule.route), `${path}: unknown route id ${rule.route}`);
+    if (has(rule, 'route')) check(has(policy.routes, rule.route), `${path}: unknown route id ${rule.route}`);
+    const excludes = has(rule, 'excludeRoutes') ? list(rule.excludeRoutes, `${path}.excludeRoutes`, Object.keys(policy.routes)) : [];
+    if (has(rule, 'note')) check(nonempty(rule.note), `${path}.note must be a nonempty string`);
+    check(has(rule, 'route') || excludes.length > 0 || nonempty(rule.note), `${path}: supply route, excludeRoutes or note`);
     check(nonempty(rule.source), `${path}.source is required`);
     check(nonempty(rule.why), `${path}.why is required`);
-    if (has(rule, 'reasoning')) reasoning(rule.reasoning, `${path}.reasoning`);
+    if (has(rule, 'reasoning')) {
+      reasoning(rule.reasoning, `${path}.reasoning`);
+      check(has(rule, 'route'), `${path}: reasoning requires a route`);
+    }
     const route = policy.routes[rule.route];
     if (!has(policy.routes, rule.route)) continue;
-    check(route.machines.some(m => machines.includes(m)), `${path}: route ${rule.route} is unavailable on repo machines ${machines.join(', ')}${muse(rule.route, route) ? ' (Muse is mac-studio only)' : ''}`);
+    if (route.type === 'external') check(!has(rule, 'reasoning'), `${path}: external routes do not accept reasoning`);
+    else check(route.machines.some(m => machines.includes(m)), `${path}: route ${rule.route} is unavailable on repo machines ${machines.join(', ')}${muse(rule.route, route) ? ' (Muse is mac-studio only)' : ''}`);
     if (has(rule, 'reasoning')) checkRouteReasoning([rule.route], rule.reasoning, policy.routes, path, check);
-    for (const kind of kinds) {
+    for (const kind of kinds.includes('*') ? Object.keys(policy.kinds) : kinds) {
       if (!has(policy.kinds, kind)) continue;
       check(!policy.kinds[kind].excludedRoutes?.includes(rule.route)
         && !(kind === 'skill-workflow' && muse(rule.route, route)), `${path}: ${rule.route} is excluded for ${kind}`);
@@ -350,28 +368,42 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
     ...selection.candidates.map(route => ({ route, reasoning: level, reason })),
     ...selection.fallbacks.map(route => ({ route, reasoning: selection.fallbackReasoning ?? level, reason: `${reason}; fallback` })),
   ];
+  const excluded = new Set(entry.excludedRoutes ?? []);
+  const notes = [];
   // ⚠ Repo instructions outrank tiers, including escalation. Hard constraints still apply.
   for (const [rules, origin] of [[repoRules, `policy repo ${repo}`], [override, 'repo override']]) {
-    const rule = rules?.rules.find(r => r.kinds.includes(kind));
+    const matching = rules?.rules.filter(r => r.kinds.includes(kind) || r.kinds.includes('*')) ?? [];
+    for (const match of matching) {
+      for (const id of match.excludeRoutes ?? []) excluded.add(id);
+      if (match.note) notes.push(match.note);
+    }
+    const rule = matching.find(r => r.route && r.kinds.includes(kind)) ?? matching.find(r => r.route);
     if (rule) proposed.unshift({ route: rule.route, reasoning: rule.reasoning ?? level,
       reason: `${origin} ${rule.source}: ${rule.why}` });
   }
   const allowed = override?.machines ?? repoRules?.machines ?? Object.keys(policy.machines);
+  if (machine !== undefined && !allowed.includes(machine)) return [];
+  const note = [...new Set(notes)].join(' ');
   const seen = new Set();
   const result = [];
   for (const candidate of proposed) {
     const id = candidate.route;
     const route = policy.routes[id];
-    if (seen.has(id) || entry.excludedRoutes?.includes(id)
+    if (seen.has(id) || excluded.has(id)
       || (kind === 'skill-workflow' && muse(id, route))) continue;
+    if (route.type === 'external') {
+      seen.add(id);
+      result.push({ route: id, ...route, reason: candidate.reason, ...(note ? { note } : {}) });
+      continue;
+    }
     const machines = route.machines.filter(m => allowed.includes(m) && (machine === undefined || machine === m));
     if (!machines.length) continue;
     seen.add(id);
     const cap = capFor(id, route);
     const capped = cap && LEVELS.indexOf(candidate.reasoning) > LEVELS.indexOf(cap);
-    result.push({ route: id, provider: route.provider, model: route.model,
+    result.push({ route: id, type: 'bb', provider: route.provider, model: route.model,
       reasoning: capped ? cap : candidate.reasoning, machines, pool: route.pool, vendor: route.vendor,
-      reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : '') });
+      reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : ''), ...(note ? { note } : {}) });
   }
   return result;
 }

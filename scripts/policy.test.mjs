@@ -21,9 +21,9 @@ function invalid(result, pattern) {
   assert.ok(result.errors.some(e => pattern.test(e)), JSON.stringify(result.errors));
 }
 
-test('default policy validates, preserves all 21 kinds, and matches the trust gate', () => {
+test('default policy validates, preserves all 23 kinds, and matches the trust gate', () => {
   assert.deepEqual(validatePolicy(policy), { ok: true, errors: [] });
-  assert.equal(Object.keys(policy.kinds).length, 21);
+  assert.equal(Object.keys(policy.kinds).length, 23);
   assert.equal(policy.cards.maxAgeDays, TRUST.STALE_DAYS);
   assert.equal(policy.policyVersion, 1);
   assert.equal(policy.updated, '2026-10-04');
@@ -162,7 +162,7 @@ test('classifier receives exactly the fixed IDs and descriptions', () => {
 test('tier 1: Muse first on Mac, Luna on PC', () => {
   const mac = resolveCandidates(policy, 'quick-edit', { machine: 'mac-studio' });
   assert.deepEqual(ids(mac), ['muse', 'luna']);
-  assert.deepEqual(mac[0], { route: 'muse', provider: 'acp-muse', model: 'muse-spark-1.3',
+  assert.deepEqual(mac[0], { route: 'muse', type: 'bb', provider: 'acp-muse', model: 'muse-spark-1.3',
     reasoning: 'medium', machines: ['mac-studio'], pool: 'muse', vendor: 'meta', reason: 'policy kind quick-edit, tier 1' });
   assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { machine: 'pc' })), ['luna']);
 });
@@ -311,4 +311,83 @@ test('repoKey injects a local Git call with separate arguments and handles a mis
   assert.equal(repoKey(repoDir, { execFile: () => { throw Object.assign(new Error('No such remote'), { status: 2 }); } }), null);
   assert.equal(repoKey(repoDir, { execFile: () => 'https://gitlab.com/o/n' }), null);
   assert.throws(() => repoKey(repoDir, { execFile: () => { throw Object.assign(new Error('git missing'), { code: 'ENOENT' }); } }), /git missing/);
+});
+
+test('external Prelude routes preserve instructions and approval flags without spawn fields', () => {
+  const repo = 'srbryers/prelude-social-skills-coach';
+  for (const [kind, id] of [['user-facing-copy', 'gemini-copy'], ['visual-implementation', 'gemini-visual'], ['image-generation', 'openai-image']]) {
+    const [candidate] = resolveCandidates(policy, kind, { repo, machine: 'pc' });
+    assert.equal(candidate.route, id);
+    assert.equal(candidate.type, 'external');
+    assert.equal(candidate.requiresSpendApproval, true);
+    assert.equal(candidate.instruction, policy.routes[id].instruction);
+    assert.equal(candidate.vendor, policy.routes[id].vendor);
+    assert.equal(candidate.pool, 'metered');
+    for (const key of ['provider', 'model', 'machines', 'reasoning']) assert.ok(!Object.hasOwn(candidate, key), key);
+    assert.match(candidate.note, /An author never approves its own change/);
+  }
+});
+
+test('external routes reject spawn fields, missing instructions and invalid approval flags', () => {
+  for (const [key, value, pattern] of [['provider', 'codex', /provider is not supported/],
+    ['machines', ['pc'], /machines is not supported/], ['model', 'image-model', /model is not supported/],
+    ['instruction', '', /instruction is required/], ['requiresSpendApproval', 'true', /must be boolean/],
+    ['pool', 'codex', /require the metered pool/]]) {
+    const p = copy(); p.routes['gemini-copy'][key] = value;
+    invalid(validatePolicy(p), pattern);
+  }
+  invalid(validateOverride(rule('gemini-copy', ['user-facing-copy'], { reasoning: 'high' }), policy), /external routes do not accept reasoning/);
+});
+
+test('BB route type defaults to bb and unknown types are rejected', () => {
+  const p = copy(); delete p.routes.muse.type;
+  assert.equal(validatePolicy(p).ok, true);
+  assert.equal(resolveCandidates(p, 'quick-edit')[0].type, 'bb');
+  p.routes.muse.type = 'unknown';
+  invalid(validatePolicy(p), /type must be bb or external/);
+});
+
+test('Prelude applies model and reasoning rules, including the independent-review note', () => {
+  const repo = 'srbryers/prelude-social-skills-coach';
+  for (const [kind, route, reasoning] of [['quick-edit', 'terra', 'medium'], ['simple-bug-fix', 'terra', 'medium'],
+    ['bounded-build', 'gpt-5.5', 'medium'], ['multi-step-coding', 'gpt-5.5', 'medium'],
+    ['docs', 'luna', 'low'], ['high-risk-review', 'astra', 'high'], ['routine-review', 'astra', 'high'],
+    ['architecture', 'astra', 'xhigh'], ['ui-visual', 'astra', 'xhigh']]) {
+    const candidate = resolveCandidates(policy, kind, { repo })[0];
+    assert.equal(candidate.route, route, kind);
+    assert.equal(candidate.reasoning, reasoning, kind);
+    assert.match(candidate.note, /Independent review.*Gate 5/);
+  }
+});
+
+test('UI Kit wildcard excludes Muse for every kind, even after escalation or a file preference', () => {
+  const repo = 'srbryers/ui-kit';
+  for (const kind of Object.keys(policy.kinds)) for (const failures of [0, 2]) {
+    const candidates = resolveCandidates(policy, kind, { repo, failures });
+    assert.ok(candidates.length > 0, kind);
+    assert.ok(candidates.every(c => c.route !== 'muse'), kind);
+    assert.ok(candidates.every(c => c.note.includes('kit-curator gate')), kind);
+  }
+  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override: rule('muse') })), ['luna']);
+});
+
+test('file wildcard rules support routes, exclusions and notes; specific routes take priority', () => {
+  const override = { policyVersion: 1, rules: [
+    { kinds: ['*'], route: 'astra', excludeRoutes: ['muse'], note: 'Shared note.', source: 'AGENTS.md', why: 'Repo default.' },
+    { kinds: ['docs'], route: 'luna', note: 'Docs note.', source: 'AGENTS.md', why: 'Docs preference.' },
+  ] };
+  assert.equal(validateOverride(override, policy).ok, true);
+  assert.equal(resolveCandidates(policy, 'quick-edit', { override })[0].route, 'astra');
+  const docs = resolveCandidates(policy, 'docs', { override });
+  assert.equal(docs[0].route, 'luna');
+  assert.ok(docs.every(c => c.route !== 'muse'));
+  assert.equal(docs[0].note, 'Shared note. Docs note.');
+});
+
+test('rule validation rejects unknown exclusions, mixed wildcards and empty actions', () => {
+  invalid(validateOverride(rule('astra', ['docs'], { excludeRoutes: ['typo'] }), policy), /excludeRoutes: unknown id typo/);
+  invalid(validateOverride(rule('astra', ['*', 'docs']), policy), /wildcard \* must be used alone/);
+  invalid(validateOverride(rule('astra', ['docs'], { note: '' }), policy), /note must be a nonempty string/);
+  const override = rule('astra'); delete override.rules[0].route;
+  invalid(validateOverride(override, policy), /supply route, excludeRoutes or note/);
 });
