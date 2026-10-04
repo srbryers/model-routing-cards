@@ -32,7 +32,7 @@ A bare slug is an OpenRouter model. A prefix picks another route:
   `muse` takes `none` to `ultra`. `claude` takes `low` to `max`.
 - They ignore `schema`. Ask for the format in the prompt.
 - Known asymmetry: `claude -p` still loads your `~/.claude/CLAUDE.md`, because the only flag that skips it (`--bare`) forces API-key billing. `muse` drops personal rules.
-- Known limit: `muse` has no flag to turn off MCP servers set up in your Muse settings.
+- `muse` has no flag to turn off MCP servers, so it refuses to run (`mcp_configured`) if your Muse `settings.json` configures any. It reads only that file, never `auth.json`. It cannot see enterprise policy. `MODEL_ROUTING_ALLOW_MUSE_MCP=1` skips the check, and the receipt says `mcp_check: skipped`.
 
 ## ⚠⚠ Build the real prompt
 

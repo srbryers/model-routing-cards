@@ -21,7 +21,13 @@ import {
   parseMuseOutput,
   parseClaudeOutput,
   claudeEnv,
+  callDirs,
+  museMcpPreflight,
+  museSettingsPath,
 } from './providers.mjs';
+
+/* ⚠ Muse's real settings are never read: its config home is an empty temp dir. */
+process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'routing-test-xdg-'));
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFileSync(join(here, 'fixtures', name), 'utf8');
@@ -165,6 +171,7 @@ test('muse builds a confined argv with the prompt in a file', async () => {
     cost_usd: null,
     cost_source: 'subscription',
     tokens: { in: null, out: null },
+    mcp_check: 'passed',
   });
 });
 
@@ -312,10 +319,25 @@ test('claudeEnv keeps the basics, proxy settings and the subscription token', ()
   ]);
 });
 
+test('claude accepts the subscription login and the OAuth-token login', async () => {
+  for (const authMethod of ['claude.ai', 'oauth_token']) {
+    const auth = { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod, apiProvider: 'firstParty' }), stderr: '' };
+    const spawn = fakeSpawn(ok(fixture('claude-print-ok.json')), { auth });
+    const res = await call(parseModel('claude:claude-sonnet-5-5'), { prompt: PROMPT, spawn });
+    assert.equal(res.state, 'completed', authMethod);
+    assert.equal(spawn.calls.length, 1);
+  }
+});
+
 test('claude is refused, without a model call, unless the login is the subscription', async () => {
   const bad = [
     { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'third_party', apiProvider: 'bedrock' }), stderr: '' },
     { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'api_key', apiProvider: 'firstParty' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'third_party', apiProvider: 'vertex' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'third_party', apiProvider: 'foundry' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'oauth_token', apiProvider: 'bedrock' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'api_key', apiProvider: 'firstParty' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' }), signal: 'SIGKILL', stderr: '' },
     { status: 0, stdout: JSON.stringify({ loggedIn: false }), stderr: '' },
     { status: 1, stdout: SUBSCRIPTION, stderr: '' },
     { status: 0, stdout: 'not json', stderr: '' },
@@ -443,6 +465,213 @@ test('the muse prompt and codex schema live outside the workspace and are remove
   assert.equal(existsSync(schemaFile), false);
 });
 
+/* ── codex: a failed run is not a completed one ────────────────────────── */
+
+test('codex rejects a failed run even when it printed an agent message', async () => {
+  const run = (reply) => call(parseModel('codex:gpt-5.5'), { prompt: PROMPT, spawn: fakeSpawn(reply) });
+  const message = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'looks fine' } });
+  const ev = (o) => JSON.stringify(o);
+
+  /* Exit 1 after an agent_message. */
+  assert.deepEqual(await run({ status: 1, stdout: message, stderr: '' }), {
+    state: 'no_output', error: 'exit_nonzero', exit_status: 1, signal: null,
+  });
+  /* Killed by a signal, whatever the status. */
+  assert.equal((await run({ status: 0, signal: 'SIGTERM', stdout: message, stderr: '' })).error, 'exit_nonzero');
+  assert.equal((await run({ status: null, signal: 'SIGKILL', stdout: message, stderr: '' })).error, 'exit_nonzero');
+  /* Exit 0 with an explicit terminal failure event. */
+  assert.equal((await run(ok(message + '\n' + ev({ type: 'turn.failed', error: { message: 'boom' } })))).error, 'is_error');
+  assert.equal((await run(ok(message + '\n' + ev({ type: 'error', message: 'boom' })))).error, 'is_error');
+  /* A completed turn after a recoverable error event is fine. */
+  const recovered = ev({ type: 'error', message: 'reconnecting' }) + '\n' + message + '\n' + ev({ type: 'turn.completed', usage: {} });
+  assert.equal((await run(ok(recovered))).state, 'completed');
+});
+
+/* ── a throw never carries its message out ──────────────────────────────── */
+
+test('an exception inside a CLI provider returns a category with no message', async () => {
+  const LEAK = 'user@example.com sk-ant-XXXX';
+  const boom = fakeSpawn(() => {
+    throw new Error(LEAK);
+  });
+  /* The auth check itself throws. */
+  const hostileAuth = () => {
+    throw new Error(LEAK);
+  };
+  for (const [label, spawn] of [
+    ['codex:gpt-5.5', boom],
+    ['muse:muse-spark-1.3', boom],
+    ['claude:claude-sonnet-5-5', boom],
+    ['claude:claude-sonnet-5-5', hostileAuth],
+  ]) {
+    const res = await call(parseModel(label), { prompt: PROMPT, spawn });
+    assert.deepEqual(res, { state: 'threw', error: 'spawn_failed' }, label);
+    assert.ok(!JSON.stringify(res).includes('example.com'));
+  }
+  /* A throwing settings reader is also a category, not a message. */
+  const res = await call(parseModel('muse:muse-spark-1.3'), {
+    prompt: PROMPT,
+    spawn: noSpawn,
+    readSettings: () => {
+      throw new Error(LEAK);
+    },
+  });
+  assert.deepEqual(res, { state: 'refused', error: 'settings_unreadable' });
+});
+
+/* ── cleanup is exception-safe ──────────────────────────────────────────── */
+
+test('callDirs removes the first directory when the second cannot be made', () => {
+  const made = [];
+  const removed = [];
+  let n = 0;
+  assert.throws(
+    () =>
+      callDirs({
+        mkdtemp: (prefix) => {
+          n += 1;
+          if (n === 2) throw new Error('disk full');
+          made.push(prefix);
+          return prefix + 'A';
+        },
+        rm: (dir) => removed.push(dir),
+      }),
+    /disk full/,
+  );
+  assert.equal(made.length, 1);
+  assert.deepEqual(removed, [made[0] + 'A']);
+});
+
+test('callDirs removes each directory even when removing the other fails', () => {
+  const tried = [];
+  const dirs = callDirs({
+    mkdtemp: (prefix) => prefix + 'X',
+    rm: (dir) => {
+      tried.push(dir);
+      if (tried.length === 1) throw new Error('EBUSY');
+    },
+  });
+  /* The scratch directory (it holds the prompt) is removed first, and failing to
+     remove it does not skip the workdir. */
+  assert.doesNotThrow(() => dirs.remove());
+  assert.equal(tried.length, 2);
+  assert.ok(tried[0].includes('scratch'));
+  assert.deepEqual(new Set(tried), new Set([dirs.scratch, dirs.workdir]));
+});
+
+test('a failure creating the second directory is a category, with no directory left behind', async () => {
+  /* Real directories: count what is left matching our prefix before and after is
+     unreliable on a shared tmpdir, so check through callDirs directly with real fs. */
+  const created = [];
+  let n = 0;
+  try {
+    callDirs({
+      mkdtemp: (prefix) => {
+        n += 1;
+        if (n === 2) throw new Error('no space');
+        const d = mkdtempSync(prefix);
+        created.push(d);
+        return d;
+      },
+    });
+  } catch {
+    /* expected */
+  }
+  assert.equal(created.length, 1);
+  assert.equal(existsSync(created[0]), false);
+});
+
+/* ── muse: MCP preflight ────────────────────────────────────────────────── */
+
+const museOk = fixture('muse-exec-ok.jsonl');
+
+test('muse is refused when the settings configure an MCP server', async () => {
+  for (const settings of [
+    { schema_version: 1, mcp_servers: { docs: { url: 'https://x.invalid' } } },
+    { mcpServers: [{ name: 'a' }] },
+    { tui: { MCP: 'on', nested: { deeper: { mcp_enabled: true } } } },
+    { tui: { list: [{ mcp: 'yes' }] } },
+  ]) {
+    const spawn = fakeSpawn(ok(museOk));
+    const res = await call(parseModel('muse:muse-spark-1.3'), {
+      prompt: PROMPT,
+      spawn,
+      readSettings: () => JSON.stringify(settings),
+    });
+    assert.deepEqual(res, { state: 'refused', error: 'mcp_configured' }, JSON.stringify(settings));
+    assert.equal(spawn.calls.length, 0, 'nothing was spawned');
+    assert.ok(!JSON.stringify(res).includes('x.invalid'), 'no setting value in the result');
+  }
+});
+
+test('muse passes when the settings have no MCP, or an empty one', async () => {
+  for (const text of [
+    JSON.stringify({ schema_version: 1, tui: {} }),
+    JSON.stringify({ schema_version: 1, tui: { theme: 'dark' }, mcp_servers: {}, mcpEnabled: false, mcp_list: [] }),
+    null, /* no file */
+  ]) {
+    const spawn = fakeSpawn(ok(museOk));
+    const res = await call(parseModel('muse:muse-spark-1.3'), { prompt: PROMPT, spawn, readSettings: () => text });
+    assert.equal(res.state, 'completed');
+    assert.equal(res.mcp_check, 'passed');
+    assert.equal(spawn.calls.length, 1);
+  }
+});
+
+test('muse refuses unreadable or unparseable settings', async () => {
+  for (const readSettings of [
+    () => '{ not json',
+    () => {
+      throw Object.assign(new Error('EACCES: /secret/path'), { code: 'EACCES' });
+    },
+  ]) {
+    const res = await call(parseModel('muse:muse-spark-1.3'), { prompt: PROMPT, spawn: noSpawn, readSettings });
+    assert.deepEqual(res, { state: 'refused', error: 'settings_unreadable' });
+  }
+});
+
+test('MODEL_ROUTING_ALLOW_MUSE_MCP=1 skips the check and says so', async () => {
+  const saved = process.env.MODEL_ROUTING_ALLOW_MUSE_MCP;
+  process.env.MODEL_ROUTING_ALLOW_MUSE_MCP = '1';
+  try {
+    const spawn = fakeSpawn(ok(museOk));
+    let read = false;
+    const res = await call(parseModel('muse:muse-spark-1.3'), {
+      prompt: PROMPT,
+      spawn,
+      readSettings: () => {
+        read = true;
+        return JSON.stringify({ mcp_servers: { a: { url: 'x' } } });
+      },
+    });
+    assert.equal(res.state, 'completed');
+    assert.equal(res.mcp_check, 'skipped');
+    assert.equal(read, false, 'the settings were not even read');
+  } finally {
+    if (saved === undefined) delete process.env.MODEL_ROUTING_ALLOW_MUSE_MCP;
+    else process.env.MODEL_ROUTING_ALLOW_MUSE_MCP = saved;
+  }
+});
+
+test('the settings reader is pointed at settings.json, never auth.json', async () => {
+  const paths = [];
+  await call(parseModel('muse:muse-spark-1.3'), {
+    prompt: PROMPT,
+    spawn: fakeSpawn(ok(museOk)),
+    readSettings: (path) => {
+      paths.push(path);
+      return null;
+    },
+  });
+  assert.equal(paths.length, 1);
+  assert.equal(paths[0], join(process.env.XDG_CONFIG_HOME, 'muse', 'settings.json'));
+  assert.ok(!paths[0].includes('auth'));
+  /* Default location, and XDG_CONFIG_HOME is honoured. */
+  assert.match(museSettingsPath({}), /\.config[\\/]muse[\\/]settings\.json$/);
+  assert.equal(museSettingsPath({ XDG_CONFIG_HOME: '/x' }), join('/x', 'muse', 'settings.json'));
+  assert.deepEqual(museMcpPreflight({ env: {}, readSettings: () => '{}' }), { ok: true, mcp_check: 'passed' });
+});
+
 /* ── route.mjs: a dry run spawns nothing ────────────────────────────────── */
 
 test('route.mjs without --execute never starts muse or claude', () => {
@@ -484,4 +713,40 @@ test('route.mjs refuses a muse contributor model even on a dry run', () => {
   const out = spawnSync(process.execPath, [join(here, 'route.mjs'), 'run', taskFile], { encoding: 'utf8' });
   assert.notEqual(out.status, 0);
   assert.match(out.stderr, /contributor/);
+});
+
+test('route.mjs stores a fixed category, not the exception message, in a receipt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'routing-receipt-'));
+  const bin = join(dir, 'bin');
+  mkdirSync(bin);
+  /* A fake claude that is logged in with the subscription and answers `ok`. */
+  writeFileSync(
+    join(bin, 'claude'),
+    `#!/bin/sh
+if [ "$1" = "auth" ]; then echo '${SUBSCRIPTION}'; exit 0; fi
+cat > /dev/null
+echo '{"is_error":false,"result":"ok","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}'
+`,
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  const taskFile = join(dir, 'task.mjs');
+  writeFileSync(
+    taskFile,
+    `export const task = {
+       id: 'receipt', models: ['claude:claude-sonnet-5-5'],
+       runs: 1, input: {}, prompt: () => 'hi',
+       score: () => { throw new Error('user@example.com sk-ant-XXXX'); }, weights: {},
+     };`,
+  );
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  const out = spawnSync(process.execPath, [join(here, 'route.mjs'), 'run', taskFile, '--execute', '--runs', '1'], {
+    env, encoding: 'utf8',
+  });
+  assert.equal(out.status, 0, out.stderr);
+  const file = join(dir, 'runs', 'receipt', 'claude_claude-sonnet-5-5-1.json');
+  const receipt = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(receipt.state, 'threw');
+  assert.equal(receipt.error, 'score_failed');
+  assert.ok(!readFileSync(file, 'utf8').includes('example.com'));
+  assert.ok(!out.stdout.includes('example.com'));
 });

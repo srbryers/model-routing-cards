@@ -172,6 +172,11 @@ if (cmd === 'run') {
         prompt_sha256: sha(prompt),
         state: 'sent',
       };
+      /* ⚠ WHICH STEP THREW, NOT WHAT IT SAID. An exception message is text this
+         code did not write and can carry a path, an account or an echo of the
+         request, and receipts are kept and shared. The receipt gets a fixed
+         category; re-run to see the message. */
+      let stage = 'call_failed';
       try {
         const res = await call(spec, {
           prompt,
@@ -190,6 +195,7 @@ if (cmd === 'run') {
              nothing; a scorer that reads the output — `scripts/jev.mjs` — has to
              make a call, and without this its promise was written into the
              receipt as `gates: {}` and every gate passed vacuously. */
+          stage = 'score_failed';
           const scored = await task.score(res.text, task.input);
           receipt.gates = scored.gates ?? {};
           receipt.metrics = scored.metrics ?? {};
@@ -205,7 +211,7 @@ if (cmd === 'run') {
         }
       } catch (err) {
         receipt.state = 'threw';
-        receipt.error = String(err).slice(0, 160);
+        receipt.error = stage;
         receipt.ms = receipt.ms ?? Date.now() - t0;
       }
       writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n');

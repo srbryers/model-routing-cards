@@ -134,15 +134,33 @@ async function viaSubconscious({ model, prompt, schema, key }) {
  * `scratch` is a second directory, outside the workspace, for files the CLI must
  * read but the model must not (the Muse prompt, the Codex schema).
  */
-function callDirs() {
-  const workdir = mkdtempSync(join(tmpdir(), 'model-routing-'));
-  const scratch = mkdtempSync(join(tmpdir(), 'model-routing-scratch-'));
+export function callDirs({ mkdtemp = mkdtempSync, rm = rmSync } = {}) {
+  const workdir = mkdtemp(join(tmpdir(), 'model-routing-'));
+  let scratch;
+  try {
+    scratch = mkdtemp(join(tmpdir(), 'model-routing-scratch-'));
+  } catch (err) {
+    /* ⚠ The first directory exists already; leaving it would leak one per failure. */
+    try {
+      rm(workdir, { recursive: true, force: true });
+    } catch {
+      /* nothing more can be done, and the original error matters more */
+    }
+    throw err;
+  }
   return {
     workdir,
     scratch,
     remove() {
-      rmSync(workdir, { recursive: true, force: true });
-      rmSync(scratch, { recursive: true, force: true });
+      /* ⚠ EACH DIRECTORY IN ITS OWN try. The scratch directory holds the prompt,
+         so a failure removing the workdir must not skip it. */
+      for (const dir of [scratch, workdir]) {
+        try {
+          rm(dir, { recursive: true, force: true });
+        } catch {
+          /* best effort: a cleanup failure must not turn an answer into a crash */
+        }
+      }
     },
   };
 }
@@ -186,7 +204,7 @@ function spawnErrorCategory(out) {
 
 /** The category for a call that exited without a usable answer. */
 function exitCategory(out, parsedError) {
-  return out.status !== 0 ? 'exit_nonzero' : (parsedError ?? 'unparseable');
+  return out.status !== 0 || out.signal ? 'exit_nonzero' : (parsedError ?? 'unparseable');
 }
 
 function viaCodex({ model, prompt, schema, spawn = spawnSync }) {
@@ -246,12 +264,25 @@ function runCodex({ model, prompt, schema, spawn, dirs }) {
   if (out.error) return cliFailure(out, spawnErrorCategory(out));
 
   /**
+   * ⚠⚠ A FAILED RUN IS NOT A COMPLETED ONE, WHATEVER TEXT IT PRINTED. A run that
+   * exits 1 can still have emitted an `agent_message` first, and the first version
+   * accepted that text and scored it. The exit status and signal are checked
+   * before any text is read, and so is an explicit `turn.failed` event.
+   */
+  if (out.status !== 0 || out.signal) return cliFailure(out, 'exit_nonzero');
+
+  /**
    * ⚠ THE EVENT STREAM IS ON STDOUT AND THE NOISE IS ON STDERR. The CLI dumps a
    * models catalogue to stderr at startup which contains the word `usage` and
    * whole JSON objects; a probe that searched both streams matched the dump and
    * read a wrong number confidently. Parse stdout, line by line, by event type.
    */
   const events = jsonLines(out.stdout);
+
+  const last = events.findLast((e) => ['turn.completed', 'turn.failed', 'error'].includes(e.type));
+  if (events.some((e) => e.type === 'turn.failed') || last?.type === 'error') {
+    return cliFailure(out, 'is_error');
+  }
 
   const usage = events.findLast((e) => e.type === 'turn.completed')?.usage ?? null;
   const text =
@@ -260,7 +291,7 @@ function runCodex({ model, prompt, schema, spawn, dirs }) {
     events.findLast((e) => e.type === 'item.completed')?.item?.text ??
     '';
 
-  if (!text) return cliFailure(out, exitCategory(out));
+  if (!text) return cliFailure(out, 'unparseable');
 
   return {
     state: 'completed',
@@ -311,12 +342,8 @@ const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
  *   --no-session-log          the prompt is not written to the session log on disk
  *   --no-foreign-personal-context  none of the user's other rules or skills
  *
- * ⚠⚠ KNOWN LIMIT: MUSE'S CONFIGURED MCP SERVERS ARE NOT DISABLED. The user's
- * `settings.json` can list `mcpServers`, and `muse exec --help`, `muse mcp --help`
- * and `muse config --help` show no flag or environment variable that turns them
- * off for one run (`muse mcp` only logs in and out). A server the user has set up
- * is therefore still reachable by the model, outside the workspace confinement
- * above. Keep MCP servers out of the Muse settings used for bake-offs.
+ * ⚠⚠ MCP SERVERS CANNOT BE DISABLED FOR A RUN — see `museMcpPreflight`, which
+ * refuses to run when the user's Muse settings configure any.
  *
  * ⚠ THE PROMPT GOES IN A FILE, NOT ARGV. Prompts are long and `ps` shows argv.
  * `muse exec` has no stdin option for the prompt, so it is a file in a scratch
@@ -380,7 +407,80 @@ function jsonLines(stdout) {
     .filter(Boolean);
 }
 
-function viaMuse({ model, prompt, reasoning, spawn = spawnSync }) {
+/**
+ * ⚠⚠ MUSE'S MCP SERVERS CANNOT BE SWITCHED OFF, SO THEY ARE CHECKED FOR.
+ * `muse exec` has no flag or environment variable that disables MCP for a run
+ * (`muse mcp` only logs in and out), and a configured server is reachable by the
+ * model from outside the workspace confinement. So the call establishes an
+ * MCP-free configuration before it spawns anything: it reads Muse's user
+ * `settings.json`, walks every key, and refuses if any key matching /mcp/i holds
+ * a non-empty value.
+ *
+ * The file is `$XDG_CONFIG_HOME/muse/settings.json`, else `~/.config/muse/`
+ * (Muse's launcher honours `XDG_CONFIG_HOME`). The workspace is a fresh empty
+ * `mkdtemp` directory, so there is no project-level Muse config to check.
+ *
+ * ⚠ ONLY `settings.json` IS READ. `auth.json` beside it is a credential and is
+ * never opened. Setting values never reach an error, receipt or log: the result
+ * is a category.
+ *
+ * ⚠ THE LIMIT OF THE CHECK: it covers the user file only. Enterprise-managed
+ * policy or a config location this code does not know about is not seen. For
+ * someone who accepts that, `MODEL_ROUTING_ALLOW_MUSE_MCP=1` skips the check and
+ * the receipt records `mcp_check: 'skipped'`.
+ */
+export function museSettingsPath(env = process.env) {
+  const base = env.XDG_CONFIG_HOME ? env.XDG_CONFIG_HOME : join(homedir(), '.config');
+  return join(base, 'muse', 'settings.json');
+}
+
+/** File text, or `null` when there is no file. Anything else throws. */
+function readSettingsFile(path) {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+const isEmptyValue = (v) =>
+  v == null ||
+  v === false ||
+  v === 0 ||
+  v === '' ||
+  (Array.isArray(v) && v.length === 0) ||
+  (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+
+function mentionsMcp(node) {
+  if (node == null || typeof node !== 'object') return false;
+  for (const [key, value] of Object.entries(node)) {
+    if (/mcp/i.test(key) && !isEmptyValue(value)) return true;
+    if (mentionsMcp(value)) return true;
+  }
+  return false;
+}
+
+/** `{ ok: true, mcp_check }` or `{ ok: false, error }` — a category, never a value. */
+export function museMcpPreflight({ env = process.env, readSettings = readSettingsFile } = {}) {
+  if (env.MODEL_ROUTING_ALLOW_MUSE_MCP === '1') return { ok: true, mcp_check: 'skipped' };
+  let text;
+  try {
+    text = readSettings(museSettingsPath(env));
+  } catch {
+    return { ok: false, error: 'settings_unreadable' };
+  }
+  if (text == null) return { ok: true, mcp_check: 'passed' };
+  let settings;
+  try {
+    settings = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'settings_unreadable' };
+  }
+  return mentionsMcp(settings) ? { ok: false, error: 'mcp_configured' } : { ok: true, mcp_check: 'passed' };
+}
+
+function viaMuse({ model, prompt, reasoning, spawn = spawnSync, readSettings }) {
   if (isContributorModel(model)) {
     return {
       state: 'refused',
@@ -391,6 +491,9 @@ function viaMuse({ model, prompt, reasoning, spawn = spawnSync }) {
   if (reasoning && !MUSE_EFFORTS.includes(reasoning)) {
     return { state: 'refused', error: `muse reasoning effort "${reasoning}" is not one of ${MUSE_EFFORTS.join('|')}` };
   }
+
+  const mcp = museMcpPreflight({ readSettings });
+  if (!mcp.ok) return { state: 'refused', error: mcp.error };
 
   const dirs = callDirs();
   let out;
@@ -411,7 +514,7 @@ function viaMuse({ model, prompt, reasoning, spawn = spawnSync }) {
   if (out.error) return cliFailure(out, spawnErrorCategory(out));
 
   /* ⚠ A non-zero exit is a failure even if some output text exists. */
-  const parsed = out.status === 0 ? parseMuseOutput(out.stdout) : null;
+  const parsed = out.status === 0 && !out.signal ? parseMuseOutput(out.stdout) : null;
   if (!parsed?.text) return cliFailure(out, exitCategory(out, parsed?.error));
 
   return {
@@ -422,6 +525,7 @@ function viaMuse({ model, prompt, reasoning, spawn = spawnSync }) {
     cost_usd: null,
     cost_source: 'subscription',
     tokens: parsed.tokens,
+    mcp_check: mcp.mcp_check,
   };
 }
 
@@ -560,7 +664,11 @@ function viaClaude({ model, prompt, reasoning, spawn = spawnSync }) {
        env allowlist below should make a metered backend impossible, and this
        catches whatever the allowlist missed — a login that is not the
        subscription, a logged-out CLI, or a managed setting. Only those two fields
-       are read; the account details in the same output are ignored. */
+       are read; the account details in the same output are ignored.
+
+       ⚠ It runs with the same allowlisted env and the same empty cwd as the real
+       call. It does NOT get `--setting-sources ""`: `claude auth status --help`
+       lists only `--json` and `--text`, so there is no such flag to pass. */
     const status = spawn('claude', ['auth', 'status', '--json'], {
       ...common,
       timeout: 30 * 1000,
@@ -577,7 +685,7 @@ function viaClaude({ model, prompt, reasoning, spawn = spawnSync }) {
 
     if (out.error) return cliFailure(out, spawnErrorCategory(out));
 
-    const parsed = out.status === 0 ? parseClaudeOutput(out.stdout) : null;
+    const parsed = out.status === 0 && !out.signal ? parseClaudeOutput(out.stdout) : null;
     if (!parsed?.text) return cliFailure(out, exitCategory(out, parsed?.error));
 
     return claudeEnvelope(parsed);
@@ -586,11 +694,24 @@ function viaClaude({ model, prompt, reasoning, spawn = spawnSync }) {
   }
 }
 
+/**
+ * ⚠ `oauth_token` IS THE SUBSCRIPTION TOO. With `CLAUDE_CODE_OAUTH_TOKEN` set
+ * (the headless setup) `claude auth status` reports `authMethod: "oauth_token"`,
+ * and refusing it would lock those users out. Both are accepted only with
+ * `apiProvider: "firstParty"`. Everything else is refused: `third_party` with
+ * Bedrock, Vertex or Foundry, an API-key method, or a logged-out CLI.
+ */
+const SUBSCRIPTION_AUTH_METHODS = ['claude.ai', 'oauth_token'];
+
 function claudeIsSubscription(status) {
-  if (status.error || status.status !== 0) return false;
+  if (status.error || status.status !== 0 || status.signal) return false;
   try {
     const s = JSON.parse(status.stdout);
-    return s?.loggedIn === true && s.authMethod === 'claude.ai' && s.apiProvider === 'firstParty';
+    return (
+      s?.loggedIn === true &&
+      SUBSCRIPTION_AUTH_METHODS.includes(s.authMethod) &&
+      s.apiProvider === 'firstParty'
+    );
   } catch {
     return false;
   }
@@ -731,18 +852,34 @@ async function viaChatGPT({ model, prompt, schema }) {
  * answer for the binary: a test must never run the real `codex`, `muse` or
  * `claude`, because each one is a model call on a subscription.
  */
-export async function call(spec, { prompt, schema, key, spawn }) {
-  if (spec.provider === 'codex') return viaCodex({ model: spec.model, prompt, schema, spawn });
+export async function call(spec, { prompt, schema, key, spawn, readSettings }) {
+  if (spec.provider === 'codex') return guardCli(() => viaCodex({ model: spec.model, prompt, schema, spawn }));
   if (spec.provider === 'muse')
-    return viaMuse({ model: spec.model, prompt, reasoning: spec.reasoning, spawn });
+    return guardCli(() =>
+      viaMuse({ model: spec.model, prompt, reasoning: spec.reasoning, spawn, readSettings }),
+    );
   if (spec.provider === 'claude')
-    return viaClaude({ model: spec.model, prompt, reasoning: spec.reasoning, spawn });
+    return guardCli(() => viaClaude({ model: spec.model, prompt, reasoning: spec.reasoning, spawn }));
   if (spec.provider === 'chatgpt') return viaChatGPT({ model: spec.model, prompt, schema });
   if (spec.provider === 'openrouter')
     return viaOpenRouter({ model: spec.model, prompt, schema, key });
   if (spec.provider === 'subconscious')
     return viaSubconscious({ model: spec.model, prompt, schema, key });
   throw new Error(`unknown provider "${spec.provider}"`);
+}
+
+/**
+ * ⚠⚠ AN EXCEPTION IS NOT ALLOWED TO CARRY ITS MESSAGE OUT. A throw from inside a
+ * CLI provider (a spawn that failed oddly, a full disk) has a message the code
+ * did not write, and it can contain a path, an account or an echo of the request.
+ * Every CLI provider body runs inside this, and the result is the category only.
+ */
+function guardCli(run) {
+  try {
+    return run();
+  } catch {
+    return { state: 'threw', error: 'spawn_failed' };
+  }
 }
 
 /** Which providers in this task need a paid key before anything is sent. */
