@@ -150,7 +150,10 @@ Subscription models run through a CLI, with no tools and an empty working
 directory, and are named by prefix: `codex:`, `muse:` and `claude:`.
 `muse:<model>` runs `muse exec` and refuses any `-contributor` model, because
 those let Meta train on your prompts. `claude:<model>` runs `claude -p`, Claude
-Code itself. Neither needs an API key. Every CLI call times out after 10 minutes.
+Code itself, run with a cleaned environment so it cannot bill a metered backend,
+and refused unless `claude auth status` shows the subscription login. Neither
+needs an API key. Each call gets a fresh empty directory. Every CLI call is
+killed after 10 minutes. A failed call records a category, never CLI output.
 
 ## Scoring What You Cannot Count
 

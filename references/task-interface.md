@@ -31,6 +31,8 @@ A bare slug is an OpenRouter model. A prefix picks another route:
 - For an effort level, use an object: `{ provider: 'muse', model, reasoning: 'low' }`.
   `muse` takes `none` to `ultra`. `claude` takes `low` to `max`.
 - They ignore `schema`. Ask for the format in the prompt.
+- Known asymmetry: `claude -p` still loads your `~/.claude/CLAUDE.md`, because the only flag that skips it (`--bare`) forces API-key billing. `muse` drops personal rules.
+- Known limit: `muse` has no flag to turn off MCP servers set up in your Muse settings.
 
 ## ⚠⚠ Build the real prompt
 

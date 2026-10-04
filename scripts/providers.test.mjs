@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, chmodSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -20,26 +20,35 @@ import {
   isContributorModel,
   parseMuseOutput,
   parseClaudeOutput,
+  claudeEnv,
 } from './providers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFileSync(join(here, 'fixtures', name), 'utf8');
 
-/** A fake `spawnSync` that records what it was asked and answers from `reply`. */
-function fakeSpawn(reply) {
+const SUBSCRIPTION = JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' });
+
+/**
+ * A fake `spawnSync` that records what it was asked and answers from `reply`.
+ * `claude auth status` is answered separately (`opts.auth`) and recorded apart,
+ * so `calls[0]` is always the model call.
+ */
+function fakeSpawn(reply, { auth = { status: 0, stdout: SUBSCRIPTION, stderr: '' } } = {}) {
   const calls = [];
+  const authCalls = [];
   const spawn = (cmd, args, opts) => {
-    calls.push({ cmd, args, opts, promptFile: readPromptFile(args) });
+    if (cmd === 'claude' && args[0] === 'auth') {
+      authCalls.push({ args, opts });
+      return auth;
+    }
+    /* The prompt file only exists during the call, so read it inside the fake. */
+    const i = args.indexOf('--prompt-file');
+    calls.push({ cmd, args, opts, promptFile: i === -1 ? null : readFileSync(args[i + 1], 'utf8') });
     return typeof reply === 'function' ? reply(cmd, args, opts) : reply;
   };
   spawn.calls = calls;
+  spawn.authCalls = authCalls;
   return spawn;
-}
-
-/* The prompt file only exists during the call, so read it inside the fake. */
-function readPromptFile(args) {
-  const i = args.indexOf('--prompt-file');
-  return i === -1 ? null : readFileSync(args[i + 1], 'utf8');
 }
 
 const noSpawn = fakeSpawn(() => {
@@ -145,7 +154,9 @@ test('muse builds a confined argv with the prompt in a file', async () => {
   assert.ok(!args.some((a) => a.includes('LONG-PROMPT-MARKER')));
   assert.ok(!flag('--prompt-file').startsWith(opts.cwd), 'prompt file is outside the workspace');
   assert.equal(existsSync(flag('--prompt-file')), false, 'prompt file is removed afterwards');
+  assert.equal(existsSync(opts.cwd), false, 'workspace is removed afterwards');
   assert.equal(opts.timeout, 10 * 60 * 1000);
+  assert.equal(opts.killSignal, 'SIGKILL');
 
   assert.deepEqual(res, {
     state: 'completed',
@@ -163,34 +174,41 @@ test('muse omits the effort flag when none is given', async () => {
   assert.ok(!spawn.calls[0].args.includes('--reasoning-effort'));
 });
 
-test('muse failure paths give an error state, not a crash', async () => {
+test('muse failure paths record a category and nothing the CLI printed', async () => {
   const run = (reply) => call(parseModel('muse:muse-spark-1.3'), { prompt: PROMPT, spawn: fakeSpawn(reply) });
+  const LEAK = 'user@example.com sk-ant-XXXX';
+  const failure = (res, state, error, extra = {}) => {
+    assert.deepEqual(res, { state, error, exit_status: null, signal: null, ...extra });
+    assert.ok(!JSON.stringify(res).includes('example.com'));
+    assert.ok(!JSON.stringify(res).includes('sk-ant'));
+  };
 
-  /* A failed run exits 1 and ends with run.terminal.failed. */
-  const failed = await run({
-    status: 1,
-    stdout: fixture('muse-exec-failed.jsonl'),
-    stderr: 'muse: workspace root: /x\nrun ended with Failed: transport error\n' + 'e'.repeat(500),
-  });
-  assert.equal(failed.state, 'no_output');
-  assert.ok(failed.error.length <= 200, 'stderr is cut to 200 characters, as viaCodex does');
-  assert.equal(failed.text, undefined);
-
+  /* A failed run exits 1 and ends with run.terminal.failed; stderr is full of detail. */
+  failure(
+    await run({ status: 1, stdout: fixture('muse-exec-failed.jsonl'), stderr: `transport error ${LEAK}` }),
+    'no_output', 'exit_nonzero', { exit_status: 1 },
+  );
   /* Non-zero exit with a completed-looking stream is still a failure. */
-  assert.equal((await run({ status: 1, stdout: fixture('muse-exec-ok.jsonl'), stderr: '' })).state, 'no_output');
+  failure(await run({ status: 3, stdout: fixture('muse-exec-ok.jsonl'), stderr: LEAK }), 'no_output', 'exit_nonzero', { exit_status: 3 });
+  /* Exit 0 but the run reported failure. */
+  failure(await run({ status: 0, stdout: fixture('muse-exec-failed.jsonl'), stderr: LEAK }), 'no_output', 'is_error', { exit_status: 0 });
   /* Unparseable, empty. */
-  assert.equal((await run(ok('not json\n{broken'))).state, 'no_output');
-  assert.equal((await run(ok(''))).state, 'no_output');
-  /* Timeout or missing binary. */
-  const timedOut = await run({ error: Object.assign(new Error('spawnSync muse ETIMEDOUT'), { code: 'ETIMEDOUT' }) });
-  assert.equal(timedOut.state, 'threw');
-  assert.match(timedOut.error, /ETIMEDOUT/);
-  assert.equal((await run({ error: new Error('spawnSync muse ENOENT') })).state, 'threw');
+  failure(await run({ status: 0, stdout: `not json ${LEAK}\n{broken`, stderr: LEAK }), 'no_output', 'unparseable', { exit_status: 0 });
+  failure(await run({ status: 0, stdout: '', stderr: LEAK }), 'no_output', 'unparseable', { exit_status: 0 });
+  /* Killed by a signal. */
+  failure(await run({ status: null, signal: 'SIGKILL', stdout: '', stderr: LEAK }), 'no_output', 'exit_nonzero', { signal: 'SIGKILL' });
+  /* Timeout, and a binary that will not start. */
+  failure(
+    await run({ error: Object.assign(new Error(`spawnSync muse ETIMEDOUT ${LEAK}`), { code: 'ETIMEDOUT' }), signal: 'SIGKILL' }),
+    'threw', 'timeout', { signal: 'SIGKILL' },
+  );
+  failure(await run({ error: Object.assign(new Error(`spawnSync muse ENOENT ${LEAK}`), { code: 'ENOENT' }) }), 'threw', 'spawn_failed');
 });
 
 test('parseMuseOutput reads the terminal event, not the deltas', () => {
   assert.deepEqual(parseMuseOutput(fixture('muse-exec-ok.jsonl')), { text: 'ok', tokens: { in: null, out: null } });
-  assert.equal(parseMuseOutput(fixture('muse-exec-failed.jsonl')), null);
+  assert.deepEqual(parseMuseOutput(fixture('muse-exec-failed.jsonl')), { error: 'is_error' });
+  assert.deepEqual(parseMuseOutput(''), { error: 'unparseable' });
 });
 
 /* ── claude: argv and envelope ──────────────────────────────────────────── */
@@ -217,9 +235,15 @@ test('claude builds a tool-free argv with the prompt on stdin', async () => {
     assert.ok(!args.includes(f), `${f} must never be passed`);
   }
   assert.ok(opts.cwd.startsWith(tmpdir()));
+  assert.equal(existsSync(opts.cwd), false, 'workdir is removed afterwards');
   assert.equal(opts.input, PROMPT);
   assert.ok(!args.some((a) => a.includes('LONG-PROMPT-MARKER')));
   assert.equal(opts.timeout, 10 * 60 * 1000);
+  assert.equal(opts.killSignal, 'SIGKILL');
+  /* The auth check ran first, with the same sanitised env. */
+  assert.equal(spawn.authCalls.length, 1);
+  assert.deepEqual(spawn.authCalls[0].args, ['auth', 'status', '--json']);
+  assert.deepEqual(spawn.authCalls[0].opts.env, opts.env);
 
   assert.deepEqual(res, {
     state: 'completed',
@@ -232,22 +256,76 @@ test('claude builds a tool-free argv with the prompt on stdin', async () => {
   });
 });
 
-test('claude never sees an API key, so it cannot bill the API', async () => {
-  const saved = { a: process.env.ANTHROPIC_API_KEY, b: process.env.ANTHROPIC_AUTH_TOKEN };
-  process.env.ANTHROPIC_API_KEY = 'sk-test-not-real';
-  process.env.ANTHROPIC_AUTH_TOKEN = 'tok-test-not-real';
+/* Every kind of variable that can move `claude -p` onto a metered backend. */
+const POLLUTION = {
+  ANTHROPIC_API_KEY: 'sk-ant-test',
+  ANTHROPIC_AUTH_TOKEN: 'tok',
+  ANTHROPIC_BASE_URL: 'http://gateway.invalid',
+  ANTHROPIC_BEDROCK_BASE_URL: 'http://b.invalid',
+  ANTHROPIC_MODEL: 'something',
+  CLAUDE_CODE_USE_BEDROCK: '1',
+  CLAUDE_CODE_USE_VERTEX: '1',
+  CLAUDE_CODE_USE_FOUNDRY: '1',
+  CLAUDE_CODE_SKIP_BEDROCK_AUTH: '1',
+  AWS_ACCESS_KEY_ID: 'x',
+  AWS_PROFILE: 'x',
+  GOOGLE_APPLICATION_CREDENTIALS: '/x',
+  GCLOUD_PROJECT: 'x',
+  CLOUDSDK_CORE_PROJECT: 'x',
+  AZURE_CLIENT_SECRET: 'x',
+  OPENROUTER_API_KEY: 'x',
+};
+
+test('claude gets an allowlisted env: no metered-backend variable reaches the spawn', async () => {
+  const saved = {};
+  for (const [k, v] of Object.entries(POLLUTION)) {
+    saved[k] = process.env[k];
+    process.env[k] = v;
+  }
   try {
     const spawn = fakeSpawn(ok(fixture('claude-print-ok.json')));
     await call(parseModel('claude:claude-sonnet-5-5'), { prompt: PROMPT, spawn });
-    const env = spawn.calls[0].opts.env;
-    assert.equal(env.ANTHROPIC_API_KEY, undefined);
-    assert.equal(env.ANTHROPIC_AUTH_TOKEN, undefined);
-    assert.equal(env.PATH, process.env.PATH, 'the rest of the environment is kept');
+    for (const env of [spawn.calls[0].opts.env, spawn.authCalls[0].opts.env]) {
+      for (const k of Object.keys(POLLUTION)) assert.equal(env[k], undefined, `${k} must not reach claude`);
+      assert.equal(env.PATH, process.env.PATH);
+      for (const k of Object.keys(env)) {
+        assert.ok(!/^(ANTHROPIC_|CLAUDE_CODE_USE_|AWS_|GOOGLE_|GCLOUD_|CLOUDSDK_|AZURE_)/.test(k), k);
+      }
+    }
   } finally {
-    for (const [k, v] of [['ANTHROPIC_API_KEY', saved.a], ['ANTHROPIC_AUTH_TOKEN', saved.b]]) {
+    for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
+  }
+});
+
+test('claudeEnv keeps the basics, proxy settings and the subscription token', () => {
+  const env = claudeEnv({
+    PATH: '/bin', HOME: '/h', USER: 'u', LANG: 'en', TERM: 'xterm', TMPDIR: '/t', SHELL: '/bin/sh',
+    HTTPS_PROXY: 'p', http_proxy: 'q', NO_PROXY: 'n', no_proxy: 'm', CLAUDE_CODE_OAUTH_TOKEN: 'oauth',
+    ANTHROPIC_API_KEY: 'k', CLAUDE_CODE_USE_BEDROCK: '1', SOMETHING_ELSE: 'z',
+  });
+  assert.deepEqual(Object.keys(env).sort(), [
+    'CLAUDE_CODE_OAUTH_TOKEN', 'HOME', 'HTTPS_PROXY', 'LANG', 'NO_PROXY', 'PATH', 'SHELL', 'TERM', 'TMPDIR', 'USER',
+    'http_proxy', 'no_proxy',
+  ]);
+});
+
+test('claude is refused, without a model call, unless the login is the subscription', async () => {
+  const bad = [
+    { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'third_party', apiProvider: 'bedrock' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'api_key', apiProvider: 'firstParty' }), stderr: '' },
+    { status: 0, stdout: JSON.stringify({ loggedIn: false }), stderr: '' },
+    { status: 1, stdout: SUBSCRIPTION, stderr: '' },
+    { status: 0, stdout: 'not json', stderr: '' },
+    { error: new Error('ENOENT') },
+  ];
+  for (const auth of bad) {
+    const spawn = fakeSpawn(ok(fixture('claude-print-ok.json')), { auth });
+    const res = await call(parseModel('claude:claude-sonnet-5-5'), { prompt: PROMPT, spawn });
+    assert.deepEqual(res, { state: 'refused', error: 'auth_not_subscription' });
+    assert.equal(spawn.calls.length, 0, 'no model call was made');
   }
 });
 
@@ -257,50 +335,112 @@ test('claude omits the effort flag when none is given', async () => {
   assert.ok(!spawn.calls[0].args.includes('--effort'));
 });
 
-test('claude failure paths give an error state, not a crash', async () => {
+test('claude failure paths record a category and nothing the CLI printed', async () => {
   const run = (reply) => call(parseModel('claude:claude-sonnet-5-5'), { prompt: PROMPT, spawn: fakeSpawn(reply) });
+  const LEAK = 'user@example.com sk-ant-XXXX';
+  const failure = (res, state, error, extra = {}) => {
+    assert.deepEqual(res, { state, error, exit_status: null, signal: null, ...extra });
+    const text = JSON.stringify(res);
+    assert.ok(!text.includes('example.com') && !text.includes('sk-ant') && !text.includes('proxy'));
+  };
 
   /* A failed call prints a result object whose `result` is the error message.
      It must not be read as an answer, and must not reach the receipt. */
-  const apiError = await run({ status: 1, stdout: fixture('claude-print-error.json'), stderr: '' });
-  assert.equal(apiError.state, 'no_output');
-  assert.equal(apiError.text, undefined);
-  assert.ok(!JSON.stringify(apiError).includes('proxy'));
-
+  const errorJson = fixture('claude-print-error.json').replace('"is_error": true', `"is_error": true, "leak": "${LEAK}"`);
+  failure(await run({ status: 1, stdout: errorJson, stderr: LEAK }), 'no_output', 'exit_nonzero', { exit_status: 1 });
   /* Even with exit 0, is_error true is a failure. */
-  assert.equal((await run(ok(fixture('claude-print-error.json')))).state, 'no_output');
-  /* Non-zero exit, unparseable, empty. */
-  assert.equal((await run({ status: 2, stdout: fixture('claude-print-ok.json'), stderr: 'boom' })).state, 'no_output');
-  assert.equal((await run(ok('not json'))).state, 'no_output');
-  assert.equal((await run(ok(JSON.stringify({ is_error: false, result: '' })))).state, 'no_output');
-  assert.equal((await run(ok(''))).state, 'no_output');
-  /* Timeout. */
-  const timedOut = await run({ error: Object.assign(new Error('spawnSync claude ETIMEDOUT'), { code: 'ETIMEDOUT' }) });
-  assert.equal(timedOut.state, 'threw');
+  failure(await run({ status: 0, stdout: errorJson, stderr: LEAK }), 'no_output', 'is_error', { exit_status: 0 });
+  failure(await run({ status: 2, stdout: fixture('claude-print-ok.json'), stderr: LEAK }), 'no_output', 'exit_nonzero', { exit_status: 2 });
+  failure(await run({ status: 0, stdout: `not json ${LEAK}`, stderr: LEAK }), 'no_output', 'unparseable', { exit_status: 0 });
+  failure(await run({ status: 0, stdout: JSON.stringify({ is_error: false, result: '' }), stderr: LEAK }), 'no_output', 'unparseable', { exit_status: 0 });
+  failure(await run({ status: 0, stdout: '', stderr: LEAK }), 'no_output', 'unparseable', { exit_status: 0 });
+  failure(await run({ status: null, signal: 'SIGKILL', stdout: '', stderr: LEAK }), 'no_output', 'exit_nonzero', { signal: 'SIGKILL' });
+  failure(
+    await run({ error: Object.assign(new Error(`spawnSync claude ETIMEDOUT ${LEAK}`), { code: 'ETIMEDOUT' }), signal: 'SIGKILL' }),
+    'threw', 'timeout', { signal: 'SIGKILL' },
+  );
+  failure(await run({ error: Object.assign(new Error(`spawnSync claude ENOENT ${LEAK}`), { code: 'ENOENT' }) }), 'threw', 'spawn_failed');
 });
 
 test('parseClaudeOutput reports a truncated answer as length and missing usage as null', () => {
   const cut = parseClaudeOutput(JSON.stringify({ is_error: false, result: 'partial', stop_reason: 'max_tokens' }));
   assert.equal(cut.finish_reason, 'length');
   assert.deepEqual(cut.tokens, { in: null, out: null });
+  assert.deepEqual(parseClaudeOutput('nope'), { error: 'unparseable' });
+  assert.deepEqual(parseClaudeOutput(fixture('claude-print-error.json')), { error: 'is_error' });
 });
 
-/* ── codex keeps working, and now has a timeout ─────────────────────────── */
+/* ── codex keeps working, with a timeout and no leaked stderr ───────────── */
 
-test('codex goes through the injected spawn and has a timeout', async () => {
-  const spawn = fakeSpawn(
-    ok(
-      JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'done' } }) +
-        '\n' +
-        JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 7, output_tokens: 2 } }),
-    ),
-  );
+const CODEX_OK =
+  JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'done' } }) +
+  '\n' +
+  JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 7, output_tokens: 2 } });
+
+test('codex goes through the injected spawn, with a hard timeout', async () => {
+  const spawn = fakeSpawn(ok(CODEX_OK));
   const res = await call(parseModel('codex:gpt-5.5'), { prompt: PROMPT, spawn });
   assert.equal(spawn.calls[0].cmd, 'codex');
   assert.equal(spawn.calls[0].opts.timeout, 10 * 60 * 1000);
+  assert.equal(spawn.calls[0].opts.killSignal, 'SIGKILL');
   assert.equal(res.text, 'done');
   assert.equal(res.cost_usd, null);
   assert.deepEqual(res.tokens, { in: 7, out: 2 });
+});
+
+test('codex failure records a category, not stderr', async () => {
+  const LEAK = 'user@example.com sk-ant-XXXX';
+  const run = (reply) => call(parseModel('codex:gpt-5.5'), { prompt: PROMPT, spawn: fakeSpawn(reply) });
+  assert.deepEqual(await run({ status: 1, stdout: '', stderr: LEAK }), {
+    state: 'no_output', error: 'exit_nonzero', exit_status: 1, signal: null,
+  });
+  assert.deepEqual(await run({ status: 0, stdout: 'garbage', stderr: LEAK }), {
+    state: 'no_output', error: 'unparseable', exit_status: 0, signal: null,
+  });
+  const res = await run({ error: Object.assign(new Error(`ETIMEDOUT ${LEAK}`), { code: 'ETIMEDOUT' }), signal: 'SIGKILL' });
+  assert.deepEqual(res, { state: 'threw', error: 'timeout', exit_status: null, signal: 'SIGKILL' });
+});
+
+/* ── a fresh, removed directory for every call ──────────────────────────── */
+
+test('every CLI call gets its own empty workdir, and both directories are removed', async () => {
+  const cases = [
+    ['muse:muse-spark-1.3', ok(fixture('muse-exec-ok.jsonl'))],
+    ['claude:claude-sonnet-5-5', ok(fixture('claude-print-ok.json'))],
+    ['codex:gpt-5.5', ok(CODEX_OK)],
+  ];
+  for (const [label, reply] of cases) {
+    const seen = [];
+    const spawn = fakeSpawn((cmd, args, opts) => {
+      /* At call time the workdir exists and is empty. */
+      assert.deepEqual(readdirSync(opts.cwd), [], `${label} workdir starts empty`);
+      writeFileSync(join(opts.cwd, 'left-behind.txt'), 'from an earlier run');
+      seen.push(opts.cwd);
+      return reply;
+    });
+    const spec = parseModel(label);
+    await call(spec, { prompt: PROMPT, schema: label.startsWith('codex') ? { type: 'object' } : null, spawn });
+    await call(spec, { prompt: PROMPT, schema: label.startsWith('codex') ? { type: 'object' } : null, spawn });
+    assert.equal(seen.length, 2);
+    assert.notEqual(seen[0], seen[1], `${label}: two calls get different directories`);
+    for (const dir of seen) assert.equal(existsSync(dir), false, `${label}: ${dir} is removed`);
+  }
+});
+
+test('the muse prompt and codex schema live outside the workspace and are removed', async () => {
+  const museSpawn = fakeSpawn(ok(fixture('muse-exec-ok.jsonl')));
+  await call(parseModel('muse:muse-spark-1.3'), { prompt: PROMPT, spawn: museSpawn });
+  const m = museSpawn.calls[0];
+  const promptFile = m.args[m.args.indexOf('--prompt-file') + 1];
+  assert.notEqual(dirname(promptFile), m.opts.cwd);
+  assert.equal(existsSync(dirname(promptFile)), false);
+
+  const codexSpawn = fakeSpawn(ok(CODEX_OK));
+  await call(parseModel('codex:gpt-5.5'), { prompt: PROMPT, schema: { type: 'object' }, spawn: codexSpawn });
+  const c = codexSpawn.calls[0];
+  const schemaFile = c.args[c.args.indexOf('--output-schema') + 1];
+  assert.notEqual(dirname(schemaFile), c.opts.cwd);
+  assert.equal(existsSync(schemaFile), false);
 });
 
 /* ── route.mjs: a dry run spawns nothing ────────────────────────────────── */

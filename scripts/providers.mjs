@@ -11,7 +11,7 @@
  * trust gate never learn which one ran.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -123,31 +123,86 @@ async function viaSubconscious({ model, prompt, schema, key }) {
 /* ── Codex CLI (a ChatGPT subscription) ─────────────────────────────────── */
 
 /**
- * ⚠ STABLE, NOT FRESH-PER-CALL. The CLI puts the working directory into the
- * model's context, so a new temp path per call changes the prompt prefix and
- * throws the cache away — measured in the wedding repo as cached input falling
- * from 19,840 to 2,432 tokens the moment confinement used `mkdtemp`. One fixed
- * empty directory confines exactly as well and keeps the prefix byte-identical.
+ * ⚠⚠ A FRESH EMPTY DIRECTORY PER CALL, REMOVED AFTERWARDS. The first version
+ * reused one fixed directory because the CLI puts the working directory into the
+ * model's context, and a new path changes the prompt prefix: measured in the
+ * wedding repo as cached input falling from 19,840 to 2,432 tokens. That saving
+ * is given up on purpose. A reused directory is only empty the first time —
+ * anything an earlier run left in it is readable by the next one, which is no
+ * confinement at all. Codex pays the lost cache; correctness comes first.
+ *
+ * `scratch` is a second directory, outside the workspace, for files the CLI must
+ * read but the model must not (the Muse prompt, the Codex schema).
  */
-function emptyWorkdir() {
-  const dir = join(tmpdir(), 'model-routing-workdir');
-  mkdirSync(dir, { recursive: true });
-  return dir;
+function callDirs() {
+  const workdir = mkdtempSync(join(tmpdir(), 'model-routing-'));
+  const scratch = mkdtempSync(join(tmpdir(), 'model-routing-scratch-'));
+  return {
+    workdir,
+    scratch,
+    remove() {
+      rmSync(workdir, { recursive: true, force: true });
+      rmSync(scratch, { recursive: true, force: true });
+    },
+  };
 }
 
 /**
- * ⚠ A CLI THAT NEVER RETURNS WOULD HANG THE WHOLE BAKE-OFF. `spawnSync` has no
- * timeout unless asked, and an agent CLI can sit on a stalled stream for as long
- * as it likes. Ten minutes is far longer than any single answer takes and short
- * enough that one stuck call costs a run, not the evening.
+ * ⚠ A hard deadline. `spawnSync` has no timeout unless asked, and an agent CLI
+ * can sit on a stalled stream for as long as it likes. Ten minutes is far longer
+ * than any single answer takes and short enough that one stuck call costs a run,
+ * not the evening. SIGKILL, because the default SIGTERM can be caught or ignored,
+ * and then the "timeout" is only a request.
  */
 const CLI_TIMEOUT_MS = 10 * 60 * 1000;
+const CLI_KILL_SIGNAL = 'SIGKILL';
+
+/**
+ * ⚠⚠ A FAILED CLI CALL RECORDS A CATEGORY, NEVER ITS OUTPUT. The first version
+ * copied `stderr.slice(0, 200)` into the receipt, and stderr can carry the
+ * account, a path, or an echo of the request. Receipts are kept and shared, so
+ * `error` is one of a fixed set and the only detail is the exit status and signal.
+ * Nothing the model or the CLI printed reaches a receipt.
+ *
+ *   spawn_failed   the binary would not start
+ *   timeout        killed at the deadline
+ *   exit_nonzero   exited non-zero, or was killed by a signal
+ *   is_error       the CLI ran and reported its own failure
+ *   unparseable    exit 0, but no answer could be read from stdout
+ */
+function cliFailure(out, category) {
+  return {
+    state: category === 'spawn_failed' || category === 'timeout' ? 'threw' : 'no_output',
+    error: category,
+    exit_status: out.status ?? null,
+    signal: out.signal ?? null,
+  };
+}
+
+/** Why a spawn that returned `error` failed, as a category. */
+function spawnErrorCategory(out) {
+  return out.error?.code === 'ETIMEDOUT' ? 'timeout' : 'spawn_failed';
+}
+
+/** The category for a call that exited without a usable answer. */
+function exitCategory(out, parsedError) {
+  return out.status !== 0 ? 'exit_nonzero' : (parsedError ?? 'unparseable');
+}
 
 function viaCodex({ model, prompt, schema, spawn = spawnSync }) {
-  const workdir = emptyWorkdir();
+  const dirs = callDirs();
+  try {
+    return runCodex({ model, prompt, schema, spawn, dirs });
+  } finally {
+    dirs.remove();
+  }
+}
+
+function runCodex({ model, prompt, schema, spawn, dirs }) {
+  const workdir = dirs.workdir;
   let schemaPath = null;
   if (schema) {
-    schemaPath = join(tmpdir(), `model-routing-schema-${process.pid}.json`);
+    schemaPath = join(dirs.scratch, 'schema.json');
     writeFileSync(schemaPath, JSON.stringify(schema.schema ?? schema));
   }
 
@@ -184,10 +239,11 @@ function viaCodex({ model, prompt, schema, spawn = spawnSync }) {
       cwd: workdir,
       maxBuffer: 64 * 1024 * 1024,
       timeout: CLI_TIMEOUT_MS,
+      killSignal: CLI_KILL_SIGNAL,
     },
   );
 
-  if (out.error) return { state: 'threw', error: String(out.error).slice(0, 160) };
+  if (out.error) return cliFailure(out, spawnErrorCategory(out));
 
   /**
    * ⚠ THE EVENT STREAM IS ON STDOUT AND THE NOISE IS ON STDERR. The CLI dumps a
@@ -204,9 +260,7 @@ function viaCodex({ model, prompt, schema, spawn = spawnSync }) {
     events.findLast((e) => e.type === 'item.completed')?.item?.text ??
     '';
 
-  if (!text) {
-    return { state: 'no_output', error: (out.stderr ?? '').slice(0, 200) };
-  }
+  if (!text) return cliFailure(out, exitCategory(out));
 
   return {
     state: 'completed',
@@ -257,10 +311,16 @@ const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
  *   --no-session-log          the prompt is not written to the session log on disk
  *   --no-foreign-personal-context  none of the user's other rules or skills
  *
+ * ⚠⚠ KNOWN LIMIT: MUSE'S CONFIGURED MCP SERVERS ARE NOT DISABLED. The user's
+ * `settings.json` can list `mcpServers`, and `muse exec --help`, `muse mcp --help`
+ * and `muse config --help` show no flag or environment variable that turns them
+ * off for one run (`muse mcp` only logs in and out). A server the user has set up
+ * is therefore still reachable by the model, outside the workspace confinement
+ * above. Keep MCP servers out of the Muse settings used for bake-offs.
+ *
  * ⚠ THE PROMPT GOES IN A FILE, NOT ARGV. Prompts are long and `ps` shows argv.
- * `muse exec` has no stdin option for the prompt, so it is a file in the temp
- * directory (outside the workspace, so the model cannot read it) and removed
- * afterwards.
+ * `muse exec` has no stdin option for the prompt, so it is a file in a scratch
+ * directory outside the workspace (so the model cannot read it), removed with it.
  *
  * ⚠ NO `--output-schema`. It is not passed, so a task with a `schema` must ask
  * for its format in the prompt. Untested against a live call, so left out.
@@ -293,14 +353,17 @@ export function museArgv({ model, reasoning, workdir, promptFile }) {
  * event per line; `run.terminal.completed` carries the whole final answer. A run
  * that failed (a transport error after four retries still exits 1) has
  * `run.terminal.failed` and no text. Muse reports no token usage, so tokens stay
- * null.
+ * null. Returns `{ text, tokens }`, or `{ error }` with a failure category.
  */
 export function parseMuseOutput(stdout) {
   const events = jsonLines(stdout);
   const end = events.findLast((e) => String(e.payload_type).startsWith('run.terminal.'));
-  if (end?.payload_type !== 'run.terminal.completed') return null;
+  if (!end) return { error: 'unparseable' };
+  if (end.payload_type !== 'run.terminal.completed') return { error: 'is_error' };
   const text = end.payload?.text;
-  return typeof text === 'string' && text ? { text, tokens: { in: null, out: null } } : null;
+  return typeof text === 'string' && text
+    ? { text, tokens: { in: null, out: null } }
+    : { error: 'unparseable' };
 }
 
 function jsonLines(stdout) {
@@ -329,26 +392,27 @@ function viaMuse({ model, prompt, reasoning, spawn = spawnSync }) {
     return { state: 'refused', error: `muse reasoning effort "${reasoning}" is not one of ${MUSE_EFFORTS.join('|')}` };
   }
 
-  const workdir = emptyWorkdir();
-  const promptFile = join(tmpdir(), `model-routing-prompt-${process.pid}.txt`);
-  writeFileSync(promptFile, prompt);
+  const dirs = callDirs();
   let out;
   try {
-    out = spawn('muse', museArgv({ model, reasoning, workdir, promptFile }), {
+    const promptFile = join(dirs.scratch, 'prompt.txt');
+    writeFileSync(promptFile, prompt);
+    out = spawn('muse', museArgv({ model, reasoning, workdir: dirs.workdir, promptFile }), {
       encoding: 'utf8',
-      cwd: workdir,
+      cwd: dirs.workdir,
       maxBuffer: 64 * 1024 * 1024,
       timeout: CLI_TIMEOUT_MS,
+      killSignal: CLI_KILL_SIGNAL,
     });
   } finally {
-    rmSync(promptFile, { force: true });
+    dirs.remove();
   }
 
-  if (out.error) return { state: 'threw', error: String(out.error).slice(0, 160) };
+  if (out.error) return cliFailure(out, spawnErrorCategory(out));
 
   /* ⚠ A non-zero exit is a failure even if some output text exists. */
   const parsed = out.status === 0 ? parseMuseOutput(out.stdout) : null;
-  if (!parsed) return { state: 'no_output', error: (out.stderr ?? '').slice(0, 200) };
+  if (!parsed?.text) return cliFailure(out, exitCategory(out, parsed?.error));
 
   return {
     state: 'completed',
@@ -378,6 +442,12 @@ function viaMuse({ model, prompt, reasoning, spawn = spawnSync }) {
  *   --setting-sources ""       no user, project or local settings, so none of
  *                              the user's hooks or permissions apply
  *
+ * ⚠ KNOWN ASYMMETRY: `claude -p` STILL LOADS THE USER'S `~/.claude/CLAUDE.md`.
+ * The only flag that skips it is `--bare`, and `--bare` never reads the
+ * subscription login (API-key billing only), so it cannot be used here. Muse
+ * drops personal rules with `--no-foreign-personal-context`; Claude cannot. A
+ * Claude bake-off prompt therefore carries the user's own instructions as well.
+ *
  * ⚠ THE PROMPT GOES ON STDIN, NOT ARGV. Prompts are long and `ps` shows argv.
  *
  * ⚠ NO `--json-schema`. Not passed, so a task with a `schema` must ask for its
@@ -402,6 +472,35 @@ export function claudeArgv({ model, reasoning }) {
 }
 
 /**
+ * ⚠⚠ THE CHILD ENVIRONMENT IS AN ALLOWLIST, NOT "EVERYTHING EXCEPT THE API KEY".
+ * The first version removed only `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`,
+ * but other variables also move `claude -p` onto a metered backend:
+ * `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`,
+ * `ANTHROPIC_BASE_URL` and the cloud providers' own credentials (`AWS_*`,
+ * `GOOGLE_*`, `AZURE_*`). Measured: `CLAUDE_CODE_USE_BEDROCK=1` alone changes
+ * `claude auth status` to `third_party` / `bedrock`. A denylist has to know every
+ * such name, now and in the next release; an allowlist only has to know what the
+ * CLI needs to start. With this one the subscription login still reports
+ * `claude.ai` / `firstParty`, so an allowlist was enough and no denylist is used.
+ *
+ * Kept: the basics a process needs, locale, proxy settings and CA certificates
+ * (so it still works behind a proxy), and `CLAUDE_CODE_OAUTH_TOKEN`, which is the
+ * subscription's own token for headless machines.
+ */
+const CLAUDE_ENV_ALLOW = [
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TMPDIR', 'SHELL',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+];
+
+export function claudeEnv(base = process.env) {
+  return Object.fromEntries(
+    CLAUDE_ENV_ALLOW.filter((k) => base[k] !== undefined).map((k) => [k, base[k]]),
+  );
+}
+
+/**
  * ⚠ `is_error` DECIDES, NOT THE EXIT CODE ALONE. A failed call (an API or proxy
  * error) still prints a result object whose `result` is the error message, so
  * reading `result` without checking `is_error` would score an error message as a
@@ -410,15 +509,20 @@ export function claudeArgv({ model, reasoning }) {
  * ⚠ The input count is everything the model read: `input_tokens` is only the
  * uncached part, and the system prompt arrives as cache tokens. `total_cost_usd`
  * is a list-price estimate, not a bill, and is deliberately ignored.
+ *
+ * Returns the answer, or `{ error }` with a failure category.
  */
 export function parseClaudeOutput(stdout) {
   let body;
   try {
     body = JSON.parse(stdout);
   } catch {
-    return null;
+    return { error: 'unparseable' };
   }
-  if (body?.is_error !== false || typeof body.result !== 'string' || !body.result) return null;
+  if (body?.is_error === true) return { error: 'is_error' };
+  if (body?.is_error !== false || typeof body.result !== 'string' || !body.result) {
+    return { error: 'unparseable' };
+  }
   const u = body.usage ?? {};
   const inTokens = [u.input_tokens, u.cache_creation_input_tokens, u.cache_read_input_tokens];
   return {
@@ -437,26 +541,62 @@ function viaClaude({ model, prompt, reasoning, spawn = spawnSync }) {
     return { state: 'refused', error: `claude effort "${reasoning}" is not one of ${CLAUDE_EFFORTS.join('|')}` };
   }
 
-  const workdir = emptyWorkdir();
-  /* ⚠⚠ AN API KEY IN THE ENVIRONMENT WOULD MAKE `claude -p` BILL THE API, NOT THE
-     SUBSCRIPTION. The CLI prefers `ANTHROPIC_API_KEY` when it is set, so the call
-     would be metered while the receipt said `subscription` and `cost_usd: null`.
-     Both are removed so the call can only use the CLI's own login. */
-  const { ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ...env } = process.env;
-  const out = spawn('claude', claudeArgv({ model, reasoning }), {
-    input: prompt,
-    encoding: 'utf8',
-    cwd: workdir,
-    env,
-    maxBuffer: 64 * 1024 * 1024,
-    timeout: CLI_TIMEOUT_MS,
-  });
+  const dirs = callDirs();
+  try {
+    const env = claudeEnv();
+    const common = {
+      encoding: 'utf8',
+      cwd: dirs.workdir,
+      env,
+      maxBuffer: 64 * 1024 * 1024,
+      killSignal: CLI_KILL_SIGNAL,
+    };
 
-  if (out.error) return { state: 'threw', error: String(out.error).slice(0, 160) };
+    /* ⚠⚠ ASK THE CLI HOW IT WILL AUTHENTICATE, AND REFUSE UNLESS IT IS THE
+       SUBSCRIPTION. `claude auth status --json` is local and free (no model call),
+       and it reads the same environment the real call gets. Measured: with
+       `CLAUDE_CODE_USE_BEDROCK=1` it reports `apiProvider: "bedrock"` and
+       `authMethod: "third_party"`; clean, `"claude.ai"` and `"firstParty"`. The
+       env allowlist below should make a metered backend impossible, and this
+       catches whatever the allowlist missed — a login that is not the
+       subscription, a logged-out CLI, or a managed setting. Only those two fields
+       are read; the account details in the same output are ignored. */
+    const status = spawn('claude', ['auth', 'status', '--json'], {
+      ...common,
+      timeout: 30 * 1000,
+    });
+    if (!claudeIsSubscription(status)) {
+      return { state: 'refused', error: 'auth_not_subscription' };
+    }
 
-  const parsed = out.status === 0 ? parseClaudeOutput(out.stdout) : null;
-  if (!parsed) return { state: 'no_output', error: (out.stderr ?? '').slice(0, 200) };
+    const out = spawn('claude', claudeArgv({ model, reasoning }), {
+      ...common,
+      input: prompt,
+      timeout: CLI_TIMEOUT_MS,
+    });
 
+    if (out.error) return cliFailure(out, spawnErrorCategory(out));
+
+    const parsed = out.status === 0 ? parseClaudeOutput(out.stdout) : null;
+    if (!parsed?.text) return cliFailure(out, exitCategory(out, parsed?.error));
+
+    return claudeEnvelope(parsed);
+  } finally {
+    dirs.remove();
+  }
+}
+
+function claudeIsSubscription(status) {
+  if (status.error || status.status !== 0) return false;
+  try {
+    const s = JSON.parse(status.stdout);
+    return s?.loggedIn === true && s.authMethod === 'claude.ai' && s.apiProvider === 'firstParty';
+  } catch {
+    return false;
+  }
+}
+
+function claudeEnvelope(parsed) {
   return {
     state: 'completed',
     text: parsed.text,
