@@ -88,7 +88,8 @@ Tier 2 is Sonnet, Astra or Sol. Weekly pace picks a pool (Claude or Codex).
 If Claude wins, the route is Sonnet. If Codex wins, `pick` alternates between
 Astra and Sol. If the pools are within 5 points, it rotates Sonnet, Astra, Sol.
 Alternating choices are labelled `trial`, never a measured winner. Sol runs on
-the Mac Studio only: it needs Codex CLI 0.160 or later, and the PC has 0.153.
+the Mac Studio and the PC; it needs Codex CLI 0.160 or later. Pi and Fireworks
+routes are mac-studio only, because BB's Pi extension does not start on Windows.
 Pass `--author ROUTE_OR_VENDOR` for an independent review. Use
 `model-routing limit muse --hours 5` after a worker hits its limit.
 

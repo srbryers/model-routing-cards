@@ -93,8 +93,10 @@ test('review excludes author vendor, including a repo override', () => {
   assert.equal(d.route, 'astra'); assert.match(d.why.join(' '), /nearest/);
 });
 test('review fallback still respects exclusions, machine, quota and cooldown', () => {
-  const d = choose({ kind: 'high-risk-review', author: 'anthropic', machine: 'pc' }, { limits: { astra: '2026-10-05', luna: '2026-10-05' } });
+  const d = choose({ kind: 'high-risk-review', author: 'anthropic', machine: 'pc' }, { limits: { astra: '2026-10-05', luna: '2026-10-05', sol: '2026-10-05' } });
   assert.equal(d.status, 'blocked');
+  // Sol runs on the PC, so with Astra and Luna limited it is the review fallback.
+  assert.equal(choose({ kind: 'high-risk-review', author: 'anthropic', machine: 'pc' }, { limits: { astra: '2026-10-05', luna: '2026-10-05' } }).route, 'sol');
 });
 test('fresh calibrated card can choose only an allowed route', () => {
   const d = choose({}, { cards: { 'multi-step-coding': card() }, alternation: { 'multi-step-coding': 'sonnet' } });
@@ -302,7 +304,7 @@ test('tier-1 exhausted subscriptions offer the first unmeasured metered route, w
   assert.equal(d.requiresSpendApproval, true); assert.equal(d.spendApproved, false);
   assert.deepEqual(d.costPer1M, { in: 0.3, out: 1.2 });
   assert.match(d.why.join(' '), /order is unmeasured; no card backs it/);
-  assert.ok(d.notes.includes('Only tested on mac-studio.'));
+  assert.ok(d.notes.includes("mac-studio only: BB's Pi extension does not start on Windows."));
   assert.equal(buildSpawn(d, {}), undefined); assert.equal(d.spawn, null);
   assert.ok(buildApproval(d, {}).spawnArgv.includes(d.model));
   assert.equal(d.reasoning, 'high');
@@ -444,13 +446,48 @@ test('Sol: one limited route leaves the other codex route; a limited pool leaves
   assert.deepEqual(routes(picks), ['astra', 'astra', 'astra']); assert.deepEqual(bases(picks), ['policy', 'policy', 'policy']);
   assert.deepEqual(routes(sequence(t, 3, {}, { limits: { astra: '2026-10-05' } })), ['sonnet', 'sol', 'sonnet']);
 });
-test('Sol: on the PC it is dropped by machine limits and Sonnet/Astra keep their trial', t => {
-  const picks = sequence(t, 4, { machine: 'pc' });
-  assert.deepEqual(routes(picks), ['sonnet', 'astra', 'sonnet', 'astra']);
-  assert.ok(picks[0].alternatives.some(a => a.route === 'sol' && /machine limit/.test(a.rejected)));
-  assert.deepEqual(routes(sequence(t, 4, { machine: 'pc' }, { quota: codexWins() })), ['astra', 'astra', 'astra', 'astra']);
+test('Sol: on the PC it rotates and alternates the same as on the Mac Studio', t => {
+  assert.deepEqual(routes(sequence(t, 4, { machine: 'pc' })), ['sonnet', 'astra', 'sol', 'sonnet']);
+  assert.deepEqual(routes(sequence(t, 4, { machine: 'pc' }, { quota: codexWins() })), ['astra', 'sol', 'astra', 'sol']);
   // A repo that only runs on the PC gets the same result without a --machine flag.
-  assert.ok(!routes(sequence(t, 4, { kind: 'multi-step-coding' }, { repo: 'srbryers/fathoms-game' })).includes('sol'));
+  assert.ok(routes(sequence(t, 4, { kind: 'multi-step-coding' }, { repo: 'srbryers/fathoms-game' })).includes('sol'));
+});
+test('Sol: every tier-2 kind can return Sol on the PC', () => {
+  const kinds = Object.entries(policy.kinds).filter(([, k]) => k.tier === 2).map(([id]) => id);
+  assert.ok(kinds.length > 0);
+  for (const kind of kinds) {
+    const d = choose({ kind, machine: 'pc' }, { quota: codexWins(), alternation: { [kind]: 'astra' } });
+    assert.equal(d.route, 'sol', kind); assert.equal(d.status, 'ok', kind);
+  }
+});
+// ⚠ BB's Pi extension fails on Windows ("Unsupported fd type: UNKNOWN"); no Pi route may be picked on the PC.
+test('pick --machine pc never returns a Pi route, for any kind', () => {
+  const pi = new Set(Object.entries(policy.routes).filter(([, r]) => r.provider === 'pi').map(([id]) => id));
+  assert.ok(pi.has('pi-local') && pi.has('fw-kimi-k3'));
+  const everyLimited = Object.fromEntries(Object.entries(policy.routes).filter(([, r]) => r.pool !== 'metered').map(([id]) => [id, '2026-10-05']));
+  const approved = [...pi];
+  for (const kind of Object.keys(policy.kinds)) {
+    for (const deps of [{}, { quota: codexWins() }, { quota: null }, { limits: everyLimited }]) {
+      for (const input of [{}, { approvedRoutes: approved }]) {
+        const d = choose({ kind, machine: 'pc', ...input }, deps);
+        assert.ok(!pi.has(d.route), `${kind}: ${d.route}`);
+      }
+    }
+  }
+  const bulk = choose({ kind: 'bulk-text', machine: 'pc' });
+  assert.notEqual(bulk.route, 'pi-local');
+  assert.ok(bulk.alternatives.some(a => a.route === 'pi-local' && /machine limit/.test(a.rejected)));
+});
+test('pc metered fallback with every subscription route on cooldown is blocked, not a Pi route', () => {
+  const limits = Object.fromEntries(Object.entries(policy.routes).filter(([, r]) => r.pool !== 'metered').map(([id]) => [id, '2026-10-05']));
+  const approvedRoutes = Object.keys(policy.routes).filter(id => policy.routes[id].pool === 'metered');
+  for (const kind of ['quick-edit', 'multi-step-coding', 'bulk-text']) {
+    const d = choose({ kind, machine: 'pc', approvedRoutes }, { limits });
+    assert.equal(d.status, 'blocked', kind); assert.equal(d.route, undefined, kind);
+  }
+  assert.ok(choose({ kind: 'multi-step-coding', machine: 'pc' }, { limits }).alternatives.some(a => a.route === 'fw-kimi-k3' && /machine limit/.test(a.rejected)));
+  // The same cooldowns on the Mac Studio do reach a metered Pi route.
+  assert.equal(choose({ kind: 'quick-edit', machine: 'mac-studio' }, { limits }).route, 'fw-deepseek-v4p1-flash');
 });
 test('Sol: a repo rule naming Astra stays on Astra', t => {
   for (const d of sequence(t, 3, { kind: '3d-work' }, { repo: 'srbryers/flora-studio' })) {
