@@ -116,8 +116,11 @@ call (a metered route). `spawn` is `null`. The command and price are under
 
 Show Sebastian the route and its price. Re-run with `--spend-approved`
 only after he approves, or if the task brief already grants that spend.
-`--spend-approved` is blanket: pass it only for the decision that was
-approved.
+`--spend-approved` is blanket: it approves spend, not a route. After the
+re-run, compare the returned `route` and `costPer1M` with what Sebastian
+approved. If the route differs, or any price is higher or unknown (`null`)
+where the approved one was known, do not dispatch. Ask for approval again.
+A `null` price means unknown, not free.
 
 ## Metered routes
 
@@ -147,8 +150,9 @@ model-routing record <decision-id> --result pass|fail|partial|abandoned --gate n
 ```
 
 Use the gate results from the checks actually run. `model-routing
-outcomes` shows pass and fail counts per kind, which is what future picks
-and routing cards learn from.
+outcomes` shows pass and fail counts per kind. These counts show when there
+is enough field evidence to run a controlled comparison. They do not change
+picks or cards.
 
 ## Cards
 
