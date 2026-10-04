@@ -42,7 +42,8 @@ openai/gpt-5.5                     3/3        0%  0.2716 (0.1771–0.459)     $0
 
 ```sh
 npm i -g github:srbryers/model-routing-cards#v0.2.0
-model-routing card example-task.mjs
+model-routing run  path/to/your-task.mjs   # dry run
+model-routing card path/to/your-task.mjs
 ```
 
 `node scripts/route.mjs` still works unchanged.
