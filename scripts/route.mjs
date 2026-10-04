@@ -2,12 +2,16 @@
 /**
  * A routing card: which model for this task, and whether to believe it.
  *
- * ⚠⚠ THIS IS NOT AN EVAL PLATFORM AND MUST NOT GROW INTO ONE. Braintrust,
- * Promptfoo, DeepEval and TrueFoundry already do production evaluation, tracing,
- * online scoring and gateway routing, and they do it better than a local script
- * will. They all route LIVE TRAFFIC. This answers a different question: an agent
- * working in a repo needs to hand a sub-task to a worker model, on this machine,
- * now — and needs to know whether that choice rests on anything.
+ * ⚠⚠ This routes agent work, not API traffic. It decides which worker,
+ * model and machine gets a task, when the task is handed out, using measured
+ * evidence, your policy and live quota. Every decision says what it rests on,
+ * and it never names a winner from noise.
+ *
+ * It does not sit in a request path, proxy calls, or retry and fail over per
+ * request. Gateways (OpenRouter, LiteLLM, Prelude's `llm-proxy`) do that, and
+ * can read this tool's policy as config.
+ *
+ * It is not an eval platform: no dashboards, tracing or online scoring.
  *
  * The deliverable is a small JSON artifact a skill can read, with a trust status
  * attached. If the evidence is thin the card SAYS SO and declines to prefer a
