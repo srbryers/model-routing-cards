@@ -74,7 +74,7 @@
     },
     "pi-local": {
       "provider": "pi",
-      "model": "qwen-mlx//Users/sebastianbryers/llm/qwen38/Qwen3.8-27B-Uncensored-MLX/8-bit",
+      "model": null,
       "machines": [
         "mac-studio"
       ],
@@ -82,7 +82,8 @@
       "vendor": "local",
       "runningByDefault": false,
       "livenessCheck": "curl -s -m 3 127.0.0.1:8080/v1/models",
-      "type": "bb"
+      "type": "bb",
+      "modelFrom": "local"
     },
     "gemini-copy": {
       "type": "external",
@@ -131,6 +132,136 @@
       ],
       "pool": "codex",
       "vendor": "openai"
+    },
+    "fw-kimi-k3": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "fireworks/accounts/fireworks/models/kimi-k3",
+      "vendor": "moonshot",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": null,
+        "out": null
+      },
+      "note": "Only tested on mac-studio."
+    },
+    "fw-glm-5p3": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "fireworks/accounts/fireworks/models/glm-5p3",
+      "vendor": "zhipu",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": null,
+        "out": null
+      },
+      "note": "Only tested on mac-studio."
+    },
+    "fw-deepseek-v4p1-flash": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "fireworks/accounts/fireworks/models/deepseek-v4p1-flash",
+      "vendor": "deepseek",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": 0.3,
+        "out": 1.2
+      },
+      "note": "Only tested on mac-studio."
+    },
+    "fw-minimax-m3": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "fireworks/accounts/fireworks/models/minimax-m3",
+      "vendor": "minimax",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": 0.3,
+        "out": 1.2
+      },
+      "note": "Only tested on mac-studio."
+    },
+    "fw-qwen3p8-max": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "fireworks/accounts/fireworks/models/qwen3p8-max",
+      "vendor": "alibaba",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": null,
+        "out": null
+      },
+      "note": "Only tested on mac-studio."
+    },
+    "fw-gpt-oss-120b": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "fireworks/accounts/fireworks/models/gpt-oss-120b",
+      "vendor": "openai",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": null,
+        "out": null
+      },
+      "note": "Only tested on mac-studio."
+    },
+    "or-gemini-flash": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "openrouter/google/gemini-3.8-flash",
+      "vendor": "google",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": 0.75,
+        "out": 3.75
+      },
+      "note": "Only tested on mac-studio.",
+      "disabled": "OpenRouter credit is about $0.21; calls return 402. Top up, then remove this field."
+    },
+    "or-gemini-pro": {
+      "type": "bb",
+      "provider": "pi",
+      "model": "openrouter/google/gemini-3.1-pro-preview",
+      "vendor": "google",
+      "pool": "metered",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "costPer1M": {
+        "in": 2,
+        "out": 12
+      },
+      "note": "Only tested on mac-studio.",
+      "disabled": "OpenRouter credit is about $0.21; calls return 402. Top up, then remove this field."
     }
   },
   "pools": {
@@ -439,7 +570,7 @@
   },
   "escalation": {
     "escalateAfterFailures": 2,
-    "failuresScope": "current-tier",
+    "failuresScope": "task",
     "steps": {
       "1": {
         "tier": 2,
@@ -491,7 +622,18 @@
         "fallback": "luna",
         "cooldownHours": 5
       }
-    ]
+    ],
+    "meteredFallback": {
+      "1": [
+        "fw-deepseek-v4p1-flash",
+        "fw-minimax-m3"
+      ],
+      "2": [
+        "fw-kimi-k3",
+        "fw-glm-5p3"
+      ],
+      "3": []
+    }
   },
   "tieBreak": {
     "tier": 2,
@@ -614,7 +756,7 @@
           ],
           "source": ".claude/rules/sprint-protocol.md",
           "why": "Implementation must receive independent review.",
-          "note": "Independent review of every implementation (Gate 5). An author never approves its own change."
+          "note": "Independent review of every implementation (Gate 5). An author never approves its own change. Gemini via OpenRouter in Pi (`or-gemini-flash`) can replace the external gemini routes once OpenRouter credit is topped up."
         },
         {
           "kinds": [

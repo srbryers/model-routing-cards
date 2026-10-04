@@ -90,10 +90,10 @@ Pass `--author ROUTE_OR_VENDOR` for an independent review. Use
 
 `--project`, `--section`, `--title` and `--prompt-file` fill the spawn arguments;
 missing values appear in `spawn.missing`. `--repo` defaults to the current
-directory. `--failures` triggers escalation; `--main-thread` permits the reserved
+directory. `--failures` counts total task failures across tiers (two steps at four failures); `--main-thread` permits the reserved
 Claude pool under the policy. `--json` forces JSON; pipes get JSON automatically.
 Exit codes are **0** for a route or external instruction, **3** for `needs_kind`,
-**4** for blocked, and **2** for invalid input or a command error.
+**4** for blocked, **5** for `needs_approval`, and **2** for invalid input or a command error.
 
 Every decision is logged under `$XDG_STATE_HOME/model-routing/decisions.jsonl`
 (default `~/.local/state/model-routing`). `MODEL_ROUTING_STATE_DIR` overrides the
@@ -117,6 +117,20 @@ model-routing card /absolute/path/to/tasks/implementation.mjs --out "${XDG_DATA_
 
 The default `card` output stays beside the task's receipts. The card's task ID must
 match its configured basename. Repo/file routing rules always outrank cards.
+
+Pi needs a model in local XDG config; see [local model configuration](policy/README.md#local-model-configuration).
+The decision’s `beforeSpawn` lists setup steps for the caller. Repo review gates
+stay in `notes`. Unreadable quota pools rely on cooldowns, not `--require-quota`.
+
+Metered Pi routes cost money on every call. They are last fallbacks only when
+quota stops or cooldowns exhaust the subscriptions; repo/file rules can also
+request them explicitly. A paid choice returns `needs_approval` with full spawn
+arguments and `costPer1M` (USD; null means unknown). Pass `--spend-approved` only
+when Sebastian approved this spend, or the task brief already grants it. The
+log records that flag. Picking never starts a worker or makes a paid call.
+OpenRouter routes are disabled until their credit is topped up. Gemini CLI no
+longer serves personal accounts, so there is no Gemini subscription route.
+See [metered routing](policy/README.md#metered-routes).
 
 ## Read That Card
 

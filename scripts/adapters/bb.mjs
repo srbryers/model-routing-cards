@@ -36,7 +36,7 @@ export function readQuota({ execFile = execFileSync } = {}) {
 }
 
 export function buildSpawn(decision, input) {
-  if (decision.status !== 'ok') return undefined;
+  if (!['ok', 'needs_approval'].includes(decision.status)) return undefined;
   const argv = ['bb', 'thread', 'spawn'];
   const missing = [];
   const add = (name, value, key = name) => {
@@ -49,7 +49,8 @@ export function buildSpawn(decision, input) {
   argv.push('--new-environment', 'worktree');
   add('provider', decision.provider);
   add('model', decision.model);
-  add('reasoning-level', decision.reasoning);
+  // ⚠ Null explicitly means this route has no reasoning setting.
+  if (decision.reasoning !== null) add('reasoning-level', decision.reasoning);
   add('machine', decision.machine);
   add('title', input.title);
   add('prompt-file', input.promptFile);

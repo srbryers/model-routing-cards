@@ -8,7 +8,7 @@ const policy = loadPolicy();
 const now = '2026-10-04T15:35:00Z';
 const sample = JSON.parse(readFileSync(new URL('./fixtures/quota.json', import.meta.url), 'utf8'));
 const quota = normalizeQuota(sample);
-const choose = (input = {}, deps = {}) => pick({ kind: 'multi-step-coding', ...input }, { policy, now, quota, id: 'dec_test', ...deps });
+const choose = (input = {}, deps = {}) => pick({ kind: 'multi-step-coding', ...input }, { policy, now, quota, id: 'dec_test', localConfig: { routes: { 'pi-local': { model: 'local-test-model' } } }, ...deps });
 function changed(claude = 59, codex = 19, weekly = 33) {
   const q = structuredClone(quota);
   q.claude.windows[0].usedPercent = claude; q.codex.windows[0].usedPercent = codex; q.claude.windows[1].usedPercent = weekly;
@@ -109,12 +109,12 @@ test('card cheaper only within tie, with measured comparable costs', () => {
   c.models[1].cost_per_accepted_usd = null;
   assert.equal(choose({}, { cards: { 'multi-step-coding': c } }).basis, 'trial');
 });
-test('Muse cooldown uses Luna until expiry; all limited blocks except available bulk local', () => {
+test('Muse cooldown uses Luna until expiry; exhaustion offers metered while bulk stays local', () => {
   const limits = { muse: '2026-10-04T16:00:00Z' };
   assert.equal(choose({ kind: 'quick-edit' }, { limits }).route, 'luna');
   assert.equal(choose({ kind: 'quick-edit' }, { limits, now: '2026-10-04T16:00:00Z' }).route, 'muse');
   limits.luna = limits.muse;
-  assert.equal(choose({ kind: 'quick-edit' }, { limits }).status, 'blocked');
+  assert.equal(choose({ kind: 'quick-edit' }, { limits }).status, 'needs_approval');
   assert.equal(choose({ kind: 'bulk-text' }, { limits, quota: changed(99, 99) }).route, 'pi-local');
 });
 test('pure pick does not mutate input, quota, cards or state', () => {
@@ -193,7 +193,7 @@ test('require-quota blocks unknown candidate pools and accepts complete quota', 
   }
   assert.equal(choose({ requireQuota: true }, { now: '2026-11-01', quota }).status, 'blocked');
   // Muse has no readable quota, while a free local route and an external instruction need no worker quota.
-  assert.equal(choose({ kind: 'quick-edit', requireQuota: true }).status, 'blocked');
+  assert.equal(choose({ kind: 'quick-edit', requireQuota: true }).route, 'muse');
   assert.equal(choose({ kind: 'user-facing-copy', requireQuota: true }, { repo: 'srbryers/prelude-social-skills-coach', quota: null }).status, 'external');
 });
 test('repo and file rules outrank calibrated cards', () => {
@@ -229,14 +229,14 @@ test('a lone Claude threshold blocks a tier-2 repo or file rule before selection
       ...(source === 'repo' ? { repo: 'test/project' } : { override: rules }) });
     assert.equal(d.route, 'astra');
     assert.ok(d.alternatives.some(a => a.route === 'sonnet'
-      && a.rejected === 'repo rule on sonnet blocked by quota: Claude 5h 75% > 70'));
+      && a.rejected === 'repo rule on sonnet blocked by quota: Claude 5h 75% > 70%'));
   }
 });
 test('a lone Codex threshold blocks the Flora Astra rule and chooses Sonnet', () => {
   const d = choose({ kind: '3d-work' }, { repo: 'srbryers/flora-studio', quota: changed(59, 90) });
   assert.equal(d.route, 'sonnet'); assert.equal(d.basis, 'policy');
   assert.ok(d.alternatives.some(a => a.route === 'astra'
-    && a.rejected === 'repo rule on astra blocked by quota: Codex weekly 90% > 85'));
+    && a.rejected === 'repo rule on astra blocked by quota: Codex weekly 90% > 85%'));
 });
 test('a lone preference falls back when its target pool is limited or excluded', () => {
   const excluded = { policyVersion: 1, rules: [{ kinds: ['multi-step-coding'], excludeRoutes: ['astra'], source: 'fixture', why: 'unavailable' }] };
@@ -248,7 +248,97 @@ test('a lone preference falls back when its target pool is limited or excluded',
   const reverse = choose({}, { quota: changed(59, 90), limits: { sonnet: '2026-10-05' } });
   assert.equal(reverse.route, 'astra'); assert.match(reverse.notes.join(' '), /falling back to codex/);
 });
-test('preference fallback cannot undo the 80 percent reservation or an exhausted candidate list', () => {
-  assert.equal(choose({}, { quota: changed(81), limits: { astra: '2026-10-05' } }).status, 'blocked');
-  assert.equal(choose({}, { quota: changed(75), limits: { astra: '2026-10-05', sonnet: '2026-10-05' } }).status, 'blocked');
+test('exhausted subscriptions use metered without undoing the 80 percent reservation', () => {
+  for (const deps of [{ quota: changed(81), limits: { astra: '2026-10-05' } },
+    { quota: changed(75), limits: { astra: '2026-10-05', sonnet: '2026-10-05' } }]) {
+    const d = choose({}, deps);
+    assert.equal(d.status, 'needs_approval'); assert.equal(d.route, 'fw-kimi-k3');
+  }
+});
+
+test('strict quota allows unreadable Muse and configured Pi, relying on cooldowns', () => {
+  for (const [kind, route, pool] of [['quick-edit', 'muse', 'muse'], ['bulk-text', 'pi-local', 'local']]) {
+    const d = choose({ kind, requireQuota: true });
+    assert.equal(d.status, 'ok'); assert.equal(d.route, route);
+    assert.ok(d.why.includes(`${pool} quota unreadable by design; relying on cooldowns`));
+  }
+  const limited = choose({ kind: 'bulk-text', requireQuota: true }, { limits: { 'pi-local': '2026-10-05' } });
+  assert.equal(limited.route, 'muse');
+  assert.equal(choose({ requireQuota: true }, { quota: { codex: quota.codex } }).status, 'blocked');
+});
+test('Pi prerequisites are explicit and null reasoning is not a missing argument', () => {
+  const d = choose({ kind: 'bulk-text' });
+  assert.deepEqual(d.beforeSpawn, ['Check the local server is running: `curl -s -m 3 127.0.0.1:8080/v1/models`']);
+  const spawn = buildSpawn(d, {});
+  assert.equal(spawn.argv.includes('--reasoning-level'), false);
+  assert.equal(spawn.missing.includes('reasoning-level'), false);
+  assert.ok(buildSpawn({ ...d, reasoning: undefined }, {}).missing.includes('reasoning-level'));
+});
+test('repo review gates remain in notes rather than beforeSpawn', () => {
+  const d = choose({}, { repo: 'srbryers/prelude-social-skills-coach' });
+  assert.match(d.notes.join(' '), /Independent review of every implementation/);
+  assert.deepEqual(d.beforeSpawn, []);
+});
+test('missing Pi configuration drops the route and uses policy fallbacks', () => {
+  const d = choose({ kind: 'bulk-text' }, { localConfig: null });
+  assert.equal(d.route, 'muse'); assert.deepEqual(d.beforeSpawn, []);
+  assert.ok(d.alternatives.some(a => a.route === 'pi-local' && a.rejected === 'pi-local model not configured in local.json'));
+});
+test('four or more task failures choose Opus xhigh rather than restarting tier 2', () => {
+  for (const failures of [4, 9]) {
+    const d = choose({ kind: 'quick-edit', failures });
+    assert.equal(d.route, 'opus'); assert.equal(d.reasoning, 'xhigh');
+  }
+});
+
+test('tier-1 exhausted subscriptions offer the first unmeasured metered route, with approval required', () => {
+  const limits = { muse: '2026-10-05', luna: '2026-10-05' };
+  const d = choose({ kind: 'quick-edit' }, { limits });
+  assert.equal(d.route, 'fw-deepseek-v4p1-flash'); assert.equal(d.status, 'needs_approval');
+  assert.equal(d.requiresSpendApproval, true); assert.equal(d.spendApproved, false);
+  assert.deepEqual(d.costPer1M, { in: 0.3, out: 1.2 });
+  assert.match(d.why.join(' '), /order is unmeasured; no card backs it/);
+  assert.ok(d.notes.includes('Only tested on mac-studio.'));
+  assert.ok(buildSpawn(d, {}).argv.includes(d.model));
+  const approved = choose({ kind: 'quick-edit', spendApproved: true }, { limits });
+  assert.equal(approved.route, d.route); assert.equal(approved.status, 'ok'); assert.equal(approved.spendApproved, true);
+  assert.equal(choose({ kind: 'quick-edit' }, { limits: { muse: '2026-10-05' } }).route, 'luna');
+});
+test('tier 3 stops when limited; paid fallbacks honor their own cooldowns', () => {
+  const d = choose({ kind: 'architecture' }, { limits: { opus: '2026-10-05' } });
+  assert.equal(d.status, 'blocked'); assert.match(d.why.join(' '), /no allowed metered fallback for tier 3/);
+  const limits = { muse: '2026-10-05', luna: '2026-10-05', 'fw-deepseek-v4p1-flash': '2026-10-05' };
+  assert.equal(choose({ kind: 'quick-edit' }, { limits }).route, 'fw-minimax-m3');
+  limits['fw-minimax-m3'] = '2026-10-05';
+  assert.equal(choose({ kind: 'quick-edit' }, { limits }).status, 'blocked');
+});
+test('exclusions, machines and review independence cannot unlock metered spending', () => {
+  const limits = { muse: '2026-10-05', luna: '2026-10-05' };
+  for (const [input, deps] of [
+    [{ kind: 'quick-edit', machine: 'pc' }, {}],
+    [{ kind: 'quick-edit' }, { repo: 'srbryers/ui-kit' }],
+    [{ kind: 'first-pass-review', author: 'openai' }, {}],
+    [{ kind: 'quick-edit', failures: 2 }, { override: { policyVersion: 1, rules: [{ kinds: ['quick-edit'], route: 'muse', source: 'fixture', why: 'preferred' }] }, limits: { sonnet: '2026-10-05', astra: '2026-10-05' } }],
+  ]) assert.equal(choose(input, { limits, ...deps }).status, 'blocked');
+  assert.equal(choose({ kind: 'bulk-text' }, { limits, localConfig: null }).status, 'blocked');
+});
+test('explicit metered repo/file routes require approval; disabled OpenRouter routes fall back', () => {
+  for (const key of ['override', 'repo']) {
+    const p = structuredClone(policy); p.repos['test/metered'] = { rules: override('fw-kimi-k3').rules };
+    const d = choose({}, { policy: p, ...(key === 'override' ? { override: override('fw-kimi-k3') } : { repo: 'test/metered' }) });
+    assert.equal(d.route, 'fw-kimi-k3'); assert.equal(d.status, 'needs_approval');
+    assert.deepEqual(d.costPer1M, { in: null, out: null });
+  }
+  for (const route of ['or-gemini-flash', 'or-gemini-pro']) {
+    const d = choose({ spendApproved: true }, { override: override(route) });
+    assert.notEqual(d.route, route);
+    assert.ok(d.alternatives.some(a => a.route === route && a.rejected === policy.routes[route].disabled));
+  }
+  const external = choose({ kind: 'user-facing-copy', spendApproved: true }, { repo: 'srbryers/prelude-social-skills-coach' });
+  assert.equal(external.status, 'external'); assert.equal(external.requiresSpendApproval, true);
+});
+test('a metered OpenAI model cannot review OpenAI-authored work', () => {
+  const d = choose({ kind: 'routine-review', author: 'astra' }, { override: override('fw-gpt-oss-120b') });
+  assert.equal(d.route, 'sonnet');
+  assert.ok(d.alternatives.some(a => a.route === 'fw-gpt-oss-120b' && /different vendor/.test(a.rejected)));
 });

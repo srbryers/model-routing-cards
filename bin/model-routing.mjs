@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { loadPolicy, loadOverride, repoKey, machineIds } from '../scripts/policy.mjs';
 import { pick } from '../scripts/pick.mjs';
+import { loadLocalConfig } from '../scripts/local-config.mjs';
 import { findCard } from '../scripts/cards.mjs';
 import { classify } from '../scripts/classify.mjs';
 import { readQuota, buildSpawn } from '../scripts/adapters/bb.mjs';
@@ -35,7 +36,7 @@ const USAGE = `usage: model-routing <command> [args]
 pick: --brief-file F | --brief TEXT, --kind K, --repo DIR, --machine ID,
       --failures N, --author ROUTE_OR_VENDOR, --main-thread, --project ID,
       --section ID, --title T, --prompt-file F, --execute, --no-quota,
-      --jev-limit-usd N (default 0.01), --cards-dir DIR, --require-quota, --json
+      --jev-limit-usd N (default 0.01), --cards-dir DIR, --require-quota, --spend-approved, --json
 limit: --hours N (default from policy, otherwise 5), --json
 record is coming in a later release.
 
@@ -62,7 +63,7 @@ const pickOptions = {
   author: { type: 'string' }, 'main-thread': { type: 'boolean' }, project: { type: 'string' },
   section: { type: 'string' }, title: { type: 'string' }, 'prompt-file': { type: 'string' },
   execute: { type: 'boolean' }, 'no-quota': { type: 'boolean' }, json: { type: 'boolean' },
-  'jev-limit-usd': { type: 'string' }, 'cards-dir': { type: 'string' }, 'require-quota': { type: 'boolean' },
+  'jev-limit-usd': { type: 'string' }, 'cards-dir': { type: 'string' }, 'require-quota': { type: 'boolean' }, 'spend-approved': { type: 'boolean' },
 };
 function number(value, label, fallback, integer = false) {
   if (value === undefined) return fallback;
@@ -75,6 +76,8 @@ function number(value, label, fallback, integer = false) {
 function present(decision, json) {
   if (json) return JSON.stringify(decision, null, 2) + '\n';
   return `${decision.status}: ${decision.route ?? decision.reason ?? 'no route'}${decision.machine ? ` on ${decision.machine}` : ''}${decision.basis ? ` (${decision.basis})` : ''}\n`
+    + (decision.costPer1M ? `Cost per 1M tokens (USD): in ${decision.costPer1M.in ?? 'unknown'}, out ${decision.costPer1M.out ?? 'unknown'}; spend approved: ${decision.spendApproved}\n` : '')
+    + decision.beforeSpawn.map(step => `before spawn: ${step}\n`).join('')
     + decision.notes.map(note => `! ${note}\n`).join('')
     + decision.why.map(reason => `- ${reason}\n`).join('')
     + (decision.instruction ? `${decision.instruction}\nSpend approval required: ${decision.requiresSpendApproval}\n` : '')
@@ -96,9 +99,10 @@ export async function runPick(args, deps = {}) {
   const repoDir = resolve(flags.repo ?? deps.cwd ?? process.cwd());
   const repo = (deps.repoKey ?? repoKey)(repoDir);
   const override = (deps.loadOverride ?? loadOverride)(repoDir);
+  const localConfig = (deps.loadLocalConfig ?? loadLocalConfig)(policy, { env: deps.env ?? process.env });
   const brief = flags['brief-file'] === undefined ? flags.brief : (deps.readFile ?? readFileSync)(resolve(flags['brief-file']), 'utf8');
   const input = { kind: flags.kind, execute: flags.execute, failures, machine: flags.machine,
-    requireQuota: flags['require-quota'], author: flags.author, mainThread: flags['main-thread'], project: flags.project,
+    spendApproved: flags['spend-approved'], requireQuota: flags['require-quota'], author: flags.author, mainThread: flags['main-thread'], project: flags.project,
     section: flags.section, title: flags.title, promptFile: flags['prompt-file'] };
   // ⚠ A local quota read is free; --execute authorizes classification only, never dispatch.
   const quota = flags['no-quota'] ? null : await (deps.readQuota ?? readQuota)();
@@ -115,7 +119,7 @@ export async function runPick(args, deps = {}) {
   const decision = await withStateLock(dir, () => {
     const now = deps.now ?? new Date();
     const state = readState(dir);
-    const decision = pick(input, { policy, repo, override, quota, classifier, cards, ...state, now,
+    const decision = pick(input, { policy, repo, override, quota, classifier, cards, localConfig, ...state, now,
       id: `dec_${new Date(now).getTime()}_${randomUUID().slice(0, 8)}` });
     decision.why.push(...found.why);
     if (state.unreadableLogLines) decision.notes.push(`skipped ${state.unreadableLogLines} unreadable log lines`);
@@ -124,7 +128,7 @@ export async function runPick(args, deps = {}) {
     return logDecision(dir, decision, brief);
   });
   (deps.stdout ?? (text => process.stdout.write(text)))(present(decision, flags.json || !(deps.isTTY ?? process.stdout.isTTY)));
-  return { ok: 0, external: 0, needs_kind: 3, blocked: 4 }[decision.status];
+  return { ok: 0, external: 0, needs_approval: 5, needs_kind: 3, blocked: 4 }[decision.status];
 }
 
 export async function runLimit(args, deps = {}) {

@@ -2,8 +2,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { validateLocalConfig } from './local-config.mjs';
 import { TRUST } from './card.mjs';
 
+const VENDORS = ['anthropic', 'openai', 'meta', 'local', 'google', 'moonshot', 'zhipu', 'deepseek', 'minimax', 'alibaba'];
 const LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const KIND_IDS = [
   'bounded-build', 'quick-edit', 'write-tests', 'docs', 'scouting', 'first-pass-review',
@@ -124,21 +126,37 @@ export function validatePolicy(policy) {
       if (!fields(route, path, ['type', 'instruction', 'requiresSpendApproval', 'vendor', 'pool'])) continue;
       check(nonempty(route.instruction), `${path}.instruction is required`);
       check(typeof route.requiresSpendApproval === 'boolean', `${path}.requiresSpendApproval must be boolean`);
-      check(['anthropic', 'openai', 'meta', 'local', 'google'].includes(route.vendor), `${path}.vendor is unsupported`);
+      check(VENDORS.includes(route.vendor), `${path}.vendor is unsupported`);
       check(route.pool === 'metered' && has(pools, route.pool), `${path}: external routes require the metered pool`);
       continue;
     }
     if (!fields(route, path, ['provider', 'model', 'machines', 'pool', 'vendor'],
-      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels'])) continue;
+      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels', 'modelFrom', 'costPer1M', 'disabled', 'requiresSpendApproval', 'note'])) continue;
     check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
-    check(nonempty(route.model), `${path}.model is required`);
+    if (has(route, 'modelFrom')) {
+      check(route.modelFrom === 'local', `${path}.modelFrom must be local`);
+      check(route.model === null, `${path}.model must be null when modelFrom is local`);
+    } else check(nonempty(route.model), `${path}.model is required`);
     list(route.machines, `${path}.machines`, machineNames, 1);
     check(has(pools, route.pool), `${path}.pool: unknown pool ${route.pool}`);
-    check(['anthropic', 'openai', 'meta', 'local', 'google'].includes(route.vendor), `${path}.vendor is unsupported`);
+    check(VENDORS.includes(route.vendor), `${path}.vendor is unsupported`);
     const requiredProvider = route.pool === 'claude' ? 'claude-code' : pools[route.pool]?.requiredProvider;
     check(!requiredProvider || route.provider === requiredProvider, `${path}: pool ${route.pool} requires provider ${requiredProvider}`);
     if (muse(id, route)) check(Array.isArray(route.machines) && route.machines.every(m => m === 'mac-studio'), `${path}: Muse is mac-studio only`);
+    if (has(route, 'disabled')) check(nonempty(route.disabled), `${path}.disabled must be a nonempty string`);
+    if (has(route, 'note')) check(nonempty(route.note), `${path}.note must be a nonempty string`);
+    if (has(route, 'requiresSpendApproval')) check(typeof route.requiresSpendApproval === 'boolean', `${path}.requiresSpendApproval must be boolean`);
+    if (route.pool === 'metered') {
+      check(route.requiresSpendApproval === true, `${path}: metered workers require spend approval`);
+      check(has(route, 'costPer1M'), `${path}.costPer1M is required for metered workers`);
+    }
+    if (has(route, 'costPer1M') && fields(route.costPer1M, `${path}.costPer1M`, ['in', 'out'])) {
+      for (const direction of ['in', 'out']) {
+        const cost = route.costPer1M[direction];
+        check(cost === null || (Number.isFinite(cost) && cost >= 0), `${path}.costPer1M.${direction} must be a nonnegative number or null`);
+      }
+    }
     if (has(route, 'maxReasoning')) reasoning(route.maxReasoning, `${path}.maxReasoning`);
     if (sonnet(id, route)) check(route.maxReasoning === 'xhigh', `${path}: Sonnet maxReasoning must be xhigh`);
     if (has(route, 'runningByDefault')) check(typeof route.runningByDefault === 'boolean', `${path}.runningByDefault must be boolean`);
@@ -202,7 +220,7 @@ export function validatePolicy(policy) {
   const escalation = policy.escalation;
   if (fields(escalation, 'escalation', ['escalateAfterFailures', 'failuresScope', 'steps'])) {
     check(Number.isInteger(escalation.escalateAfterFailures) && escalation.escalateAfterFailures > 0, 'escalation.escalateAfterFailures must be a positive integer');
-    check(escalation.failuresScope === 'current-tier', 'escalation.failuresScope must be current-tier');
+    check(escalation.failuresScope === 'task', 'escalation.failuresScope must be task');
     if (fields(escalation.steps, 'escalation.steps', ['1', '2'])) {
       for (const [from, step] of Object.entries(escalation.steps)) {
         const path = `escalation.steps.${from}`;
@@ -216,7 +234,15 @@ export function validatePolicy(policy) {
     }
   }
   const quota = policy.quota;
-  if (fields(quota, 'quota', ['overridesBeatHardStops', 'thresholds', 'limitErrors'])) {
+  if (fields(quota, 'quota', ['overridesBeatHardStops', 'thresholds', 'limitErrors', 'meteredFallback'])) {
+    if (fields(quota.meteredFallback, 'quota.meteredFallback', ['1', '2', '3'])) {
+      for (const [tier, ids] of Object.entries(quota.meteredFallback)) {
+        for (const id of routeList(ids, `quota.meteredFallback.${tier}`)) {
+          check(routes[id]?.pool === 'metered' && routes[id]?.type === 'bb', `quota.meteredFallback.${tier}: ${id} must be a metered worker`);
+        }
+      }
+      check(Array.isArray(quota.meteredFallback['3']) && quota.meteredFallback['3'].length === 0, 'quota.meteredFallback.3 must be empty');
+    }
     check(quota.overridesBeatHardStops === false, 'quota.overridesBeatHardStops must be false');
     check(Array.isArray(quota.thresholds), 'quota.thresholds must be an array');
     for (const [i, rule] of (Array.isArray(quota.thresholds) ? quota.thresholds : []).entries()) {
@@ -439,8 +465,9 @@ export function kindsForClassifier(policy) {
 }
 
 /** Expand policy order only. PR 3 applies quota, liveness, vendor checks and card trust. */
-export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0, reviewFallbacks = false } = {}) {
+export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0, reviewFallbacks = false, meteredFallbacks = false, localConfig = null } = {}) {
   assertValid(validatePolicy(policy), 'policy');
+  if (localConfig !== null) assertValid(validateLocalConfig(localConfig, policy), 'local config');
   if (!has(policy.kinds, kind)) throw new TypeError(`Unknown kind: ${kind}`);
   if (override !== null) assertValid(validateOverride(override, policy), 'override');
   if (machine !== undefined && !machineIds(policy).includes(machine)) throw new TypeError(`Unknown machine: ${machine}`);
@@ -452,7 +479,15 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
   const repoRules = has(policy.repos, repo) ? policy.repos[repo] : null;
   const entry = policy.kinds[kind];
   const thresholdReached = failures >= policy.escalation.escalateAfterFailures;
-  const step = thresholdReached ? policy.escalation.steps[entry.tier] : undefined;
+  let step;
+  let currentTier = entry.tier;
+  // ⚠ Failures count across the whole task; a large count must not restart tier 2.
+  for (let remaining = Math.floor(failures / policy.escalation.escalateAfterFailures); remaining > 0; remaining--) {
+    const next = policy.escalation.steps[currentTier];
+    if (!next) break;
+    step = next;
+    currentTier = next.tier;
+  }
   const selection = step ? policy.tiers[step.tier] : entry;
   const tier = step ? step.tier : entry.tier;
   const level = step ? step.reasoning : entry.reasoning;
@@ -471,6 +506,13 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
       for (const route of [...defaults.candidates, ...defaults.fallbacks]) {
         proposed.push({ route, reasoning: defaults.reasoning, source: 'tier', fallback: true, escalated: thresholdReached, reason: `nearest different-vendor review route, tier ${tier}` });
       }
+    }
+  }
+  // ⚠ Pick enables this expansion only after subscriptions were exhausted by limits.
+  if (meteredFallbacks) {
+    for (const route of policy.quota.meteredFallback[tier] ?? []) {
+      proposed.push({ route, reasoning: level, source: 'tier', fallback: true, escalated: !!step,
+        reason: 'metered fallback order is unmeasured; no card backs it' });
     }
   }
   const excluded = new Set(entry.excludedRoutes ?? []);
@@ -505,7 +547,16 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
       blocked.push({ route: id, why: `excluded for ${kind} by policy or matching repo/file rule` });
       continue;
     }
+    if (route.disabled) {
+      blocked.push({ route: id, why: route.disabled });
+      continue;
+    }
     const external = route.type === 'external';
+    const model = route.modelFrom === 'local' ? localConfig?.routes[id]?.model : route.model;
+    if (!external && !model) {
+      blocked.push({ route: id, why: `${id} model not configured in local.json` });
+      continue;
+    }
     const machines = external ? [] : route.machines.filter(m => allowed.includes(m) && (machine === undefined || machine === m));
     if ((machine !== undefined && !allowed.includes(machine)) || (!external && !machines.length)) {
       blocked.push({ route: id, why: `machine limit: requested ${machine ?? 'any'}, repo allows ${allowed.join(', ')}, route allows ${external ? 'external instruction' : route.machines.join(', ')}` });
@@ -519,13 +570,14 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
     const cap = capFor(id, route);
     const capped = !external && cap && LEVELS.indexOf(candidate.reasoning) > LEVELS.indexOf(cap);
     candidates.push({ route: id, type: external ? 'external' : 'bb',
-      provider: external ? null : route.provider, model: external ? null : route.model,
+      provider: external ? null : route.provider, model: external ? null : model,
       reasoning: external ? null : capped ? cap : candidate.reasoning, machines,
       pool: route.pool, vendor: route.vendor, tier, source: candidate.source,
       fallback: candidate.fallback, escalated: candidate.escalated,
       reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : ''),
       ...(external ? { instruction: route.instruction, requiresSpendApproval: route.requiresSpendApproval } : {}),
-      ...(note ? { note } : {}) });
+      ...(route.costPer1M ? { costPer1M: route.costPer1M, requiresSpendApproval: route.requiresSpendApproval } : {}),
+      ...(note || route.note ? { note: [note, route.note].filter(Boolean).join(' ') } : {}) });
   }
   return { candidates, blocked };
 }
