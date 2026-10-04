@@ -80,10 +80,10 @@ with Jev. With `--kind`, no model is called. Without `--execute`, a brief alone
 returns `needs_kind` with reason `dry`; no credential is read. The per-pick Jev
 cap is **$0.01**, adjustable with `--jev-limit-usd`.
 
-Quota is read through the local worker-host command using its own login, without
-a model call or this repo’s credentials. `--no-quota` skips it. Missing quota
-adds **“quota unknown: hard stops not applied”** to the notes. Main threads can
-pass `--require-quota` to block when an eligible worker pool has unknown quota.
+Quota is read by a local `bb` command; `--no-quota` skips it, and main threads
+should pass `--require-quota`. The command uses BB's own login, without a model
+call or this repo's credentials. Unknown quota adds **“quota unknown: hard stops
+not applied”** to the notes; `--require-quota` blocks the affected decision.
 Tier 2 uses weekly pace; ties alternate as `trial`, never a measured winner.
 Pass `--author ROUTE_OR_VENDOR` for an independent review. Use
 `model-routing limit muse --hours 5` after a worker hits its limit.
