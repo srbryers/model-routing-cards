@@ -1,0 +1,500 @@
+{
+  "policyVersion": 1,
+  "updated": "2026-10-04",
+  "routes": {
+    "muse": {
+      "provider": "acp-muse",
+      "model": "muse-spark-1.3",
+      "machines": [
+        "mac-studio"
+      ],
+      "pool": "muse",
+      "vendor": "meta"
+    },
+    "sonnet": {
+      "provider": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "claude",
+      "vendor": "anthropic",
+      "maxReasoning": "high"
+    },
+    "opus": {
+      "provider": "claude-code",
+      "model": "claude-opus-5-5",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "claude",
+      "vendor": "anthropic"
+    },
+    "astra": {
+      "provider": "codex",
+      "model": "gpt-6-astra",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "codex",
+      "vendor": "openai"
+    },
+    "luna": {
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "codex",
+      "vendor": "openai"
+    },
+    "pi-local": {
+      "provider": "pi",
+      "model": "qwen-mlx//Users/sebastianbryers/llm/qwen38/Qwen3.8-27B-Uncensored-MLX/8-bit",
+      "machines": [
+        "mac-studio"
+      ],
+      "pool": "local",
+      "vendor": "local",
+      "runningByDefault": false,
+      "livenessCheck": "curl -s -m 3 127.0.0.1:8080/v1/models"
+    }
+  },
+  "pools": {
+    "muse": {
+      "readable": false,
+      "free": false,
+      "windows": []
+    },
+    "claude": {
+      "readable": true,
+      "free": false,
+      "windows": [
+        "five-hour",
+        "weekly"
+      ],
+      "requiredProvider": "claude-code"
+    },
+    "codex": {
+      "readable": true,
+      "free": false,
+      "windows": [
+        "weekly"
+      ]
+    },
+    "local": {
+      "readable": false,
+      "free": true,
+      "windows": []
+    }
+  },
+  "tiers": {
+    "1": {
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ],
+      "reasoning": "medium"
+    },
+    "2": {
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": [],
+      "reasoning": "high"
+    },
+    "3": {
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": [],
+      "reasoning": "xhigh"
+    }
+  },
+  "kinds": {
+    "bounded-build": {
+      "tier": 1,
+      "reasoning": "high",
+      "description": "One feature slice, endpoint or script from a clear brief.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "quick-edit": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Renames, scoped refactors, lint and type fixes.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "write-tests": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Tests for existing code.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "docs": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Docs, READMEs, AGENTS.md, changelogs and copy passes.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "scouting": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Read-only investigation: explain code, locate files, map a repo or summarize a PR.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "first-pass-review": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "First review of a diff, never the merge gate.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "simple-bug-fix": {
+      "tier": 1,
+      "reasoning": "high",
+      "description": "Fix a bug with a clear reproduction.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "multi-step-coding": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "A feature across several files or long-running coding work.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "migration": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Code migrations and larger refactors.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "hard-bug-fix": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Diagnose and fix a bug with no clear reproduction or an unknown cause.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "ci-terminal": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Failing pipelines, build scripts and environment fixes.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "routine-review": {
+      "tier": 2,
+      "reasoning": "medium",
+      "description": "Review of Muse or tier-2 work.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "skill-workflow": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Work requiring skills such as SLOPE, ship gates, sim-lab or kit-curator; Muse follows skills poorly.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": [],
+      "excludedRoutes": [
+        "muse"
+      ]
+    },
+    "3d-work": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "3D modeling, geometry, materials, shaders and spatial work.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "ui-visual": {
+      "tier": 3,
+      "reasoning": "xhigh",
+      "description": "UI and visual work.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "ios": {
+      "tier": 3,
+      "reasoning": "xhigh",
+      "description": "iOS work.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "architecture": {
+      "tier": 3,
+      "reasoning": "xhigh",
+      "description": "Architecture decisions.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "high-risk-review": {
+      "tier": 3,
+      "reasoning": "high",
+      "description": "UI, security or data-contract review, and anything about to merge to a deploy branch.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "data-contract": {
+      "tier": 3,
+      "reasoning": "high",
+      "description": "Design or change data contracts, schemas or API shapes.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "bulk-text": {
+      "tier": "local",
+      "reasoning": null,
+      "description": "Bulk, private or low-stakes text work.",
+      "candidates": [
+        "pi-local"
+      ],
+      "fallbacks": [
+        "muse",
+        "luna"
+      ],
+      "fallbackReasoning": "medium"
+    },
+    "image-generation": {
+      "tier": "image",
+      "reasoning": null,
+      "description": "Image generation through Codex image tooling; pi-imagen is an alternative tool, not a route.",
+      "candidates": [
+        "astra"
+      ],
+      "fallbacks": [],
+      "tool": "codex-image",
+      "alternativeTool": "pi-imagen"
+    }
+  },
+  "escalation": {
+    "escalateAfterFailures": 2,
+    "failuresScope": "current-tier",
+    "steps": {
+      "1": {
+        "tier": 2,
+        "reasoning": "high"
+      },
+      "2": {
+        "tier": 3,
+        "reasoning": "xhigh"
+      }
+    }
+  },
+  "quota": {
+    "overridesBeatHardStops": false,
+    "thresholds": [
+      {
+        "pool": "claude",
+        "window": "five-hour",
+        "usedPercentAbove": 70,
+        "tiers": [
+          2
+        ],
+        "action": "prefer-route",
+        "route": "astra"
+      },
+      {
+        "pool": "claude",
+        "window": "five-hour",
+        "usedPercentAbove": 80,
+        "action": "reserve-pool",
+        "allowedTiers": [
+          3
+        ],
+        "allowMainThreads": true
+      },
+      {
+        "pool": "codex",
+        "window": "weekly",
+        "usedPercentAbove": 85,
+        "tiers": [
+          2
+        ],
+        "action": "prefer-route",
+        "route": "sonnet"
+      }
+    ],
+    "limitErrors": [
+      {
+        "route": "muse",
+        "fallback": "luna",
+        "cooldownHours": 5
+      }
+    ],
+    "allLimited": {
+      "route": "pi-local",
+      "kinds": [
+        "bulk-text"
+      ],
+      "otherwise": "stop-and-report"
+    }
+  },
+  "tieBreak": {
+    "tier": 2,
+    "order": [
+      "repo-override",
+      "machine",
+      "weekly-headroom",
+      "alternate"
+    ],
+    "pcCandidates": [
+      "sonnet",
+      "astra"
+    ],
+    "tieBreak": "pace",
+    "window": "weekly",
+    "onTie": "alternate",
+    "routes": [
+      "sonnet",
+      "astra"
+    ],
+    "label": "trial"
+  },
+  "review": {
+    "differentVendor": true,
+    "kinds": [
+      "first-pass-review",
+      "routine-review",
+      "high-risk-review"
+    ]
+  },
+  "cards": {
+    "requireTrust": "CALIBRATED",
+    "maxAgeDays": 30
+  },
+  "machines": {
+    "mac-studio": {
+      "description": "Mac Studio; supports Muse and the optional local server."
+    },
+    "pc": {
+      "description": "PC; no Muse or pi-local route."
+    }
+  },
+  "repos": {
+    "srbryers/wedding": {
+      "rules": [
+        {
+          "kinds": [
+            "data-contract",
+            "high-risk-review"
+          ],
+          "route": "astra",
+          "source": "AGENTS.md",
+          "why": "Data contracts and their review go to OpenAI; high-risk-review includes data-contract review."
+        }
+      ]
+    },
+    "srbryers/fathoms-game": {
+      "machines": [
+        "pc"
+      ],
+      "rules": [
+        {
+          "kinds": [
+            "routine-review",
+            "high-risk-review",
+            "architecture",
+            "hard-bug-fix"
+          ],
+          "route": "astra",
+          "source": "docs/agent/act0-model-routing.md",
+          "why": "Substantive review and reasoning go to Astra; this 8 GB repo runs on PC."
+        }
+      ]
+    },
+    "srbryers/flora-studio": {
+      "rules": [
+        {
+          "kinds": [
+            "3d-work"
+          ],
+          "route": "astra",
+          "source": "CLAUDE.md",
+          "why": "All 3D work goes to Astra."
+        },
+        {
+          "kinds": [
+            "routine-review",
+            "first-pass-review"
+          ],
+          "route": "luna",
+          "source": "docs/agent/model-delegation.md",
+          "why": "Luna is the default for non-3D review."
+        }
+      ]
+    }
+  }
+}

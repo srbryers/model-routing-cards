@@ -1,0 +1,17 @@
+{
+  "policyVersion": 1,
+  "machines": [
+    "pc"
+  ],
+  "rules": [
+    {
+      "kinds": [
+        "bounded-build"
+      ],
+      "route": "luna",
+      "reasoning": "high",
+      "source": "AGENTS.md",
+      "why": "This repo uses Luna for bounded implementation tasks."
+    }
+  ]
+}

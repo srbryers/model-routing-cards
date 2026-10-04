@@ -8,6 +8,7 @@
   "exports": {
     ".": "./scripts/card.mjs",
     "./card": "./scripts/card.mjs",
+    "./policy": "./scripts/policy.mjs",
     "./jev": "./scripts/jev.mjs",
     "./clef": "./scripts/clef.mjs",
     "./providers": "./scripts/providers.mjs",
@@ -19,6 +20,7 @@
     "scripts/*.mjs",
     "!scripts/*.test.mjs",
     "references/",
+    "policy/",
     "skills/",
     "tasks/",
     "!tasks/runs",
