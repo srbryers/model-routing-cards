@@ -385,3 +385,25 @@ test('shared log helpers skip corrupt lines and preserve appends after a truncat
   assert.equal(await main(['outcomes'], h), 0);
   assert.match(h.output.at(-1), /Skipped 2 unreadable outcomes log lines/);
 });
+
+test('summary skips invalid results and bases, counts them unreadable and keeps the last valid outcome', async t => {
+  const h = harness(t); decision(h);
+  assert.equal(await main(['record', 'dec_test', '--result', 'fail'], h), 0);
+  const valid = last(h);
+  const noBasis = { ...valid, result: 'pass' }; delete noBasis.basis;
+  const invalid = [{ ...valid, result: 'constructor' }, noBasis, { ...valid, basis: 'constructor' }];
+  writeFileSync(join(h.stateDir, 'outcomes.jsonl'), log(h)
+    + invalid.map(o => JSON.stringify(o)).join('\n') + '\n{broken\n');
+  decision(h, { id: 'bad_basis', basis: undefined });
+  assert.equal(await main(['outcomes', '--json'], h), 0);
+  const summary = last(h);
+  assert.deepEqual(summary.unreadableLogLines, { decisions: 1, outcomes: 4 });
+  assert.equal(summary.rows.length, 1);
+  assert.equal(summary.rows[0].decisions, 1);
+  assert.equal(summary.rows[0].recordedOutcomes, 1);
+  assert.equal(summary.rows[0].fail, 1);
+  assert.equal(summary.rows[0].pass, 0);
+  assert.equal(Object.hasOwn(summary.rows[0], 'constructor'), false);
+  assert.equal(await main(['outcomes'], h), 0);
+  assert.match(h.output.at(-1), /Skipped 4 unreadable outcomes log lines/);
+});

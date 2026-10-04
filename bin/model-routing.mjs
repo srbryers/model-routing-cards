@@ -184,8 +184,10 @@ export async function runOutcomes(args, deps = {}) {
   const summary = await withStateLock(dir, () => {
     const decisions = readStateLog(dir, 'decisions.jsonl');
     const outcomes = readStateLog(dir, 'outcomes.jsonl');
-    return { ...summarizeOutcomes(decisions.records, outcomes.records, policy, values.kind),
-      unreadableLogLines: { decisions: decisions.unreadableLogLines, outcomes: outcomes.unreadableLogLines } };
+    const summary = summarizeOutcomes(decisions.records, outcomes.records, policy, values.kind);
+    summary.unreadableLogLines.decisions += decisions.unreadableLogLines;
+    summary.unreadableLogLines.outcomes += outcomes.unreadableLogLines;
+    return summary;
   });
   (deps.stdout ?? (text => process.stdout.write(text)))(values.json ? JSON.stringify(summary, null, 2) + '\n' : formatOutcomes(summary));
   return 0;

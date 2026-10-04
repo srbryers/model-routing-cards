@@ -245,7 +245,8 @@ The brief must fit within 40% of the 80,000-character text budget or the check i
 refused. The result uses the remaining budget, keeping its beginning and end with
 an omission marker in the middle. The complete brief is always sent.
 
-Both logs use the shared state reader and lock. Unreadable lines are skipped;
+Both logs use the shared state reader and lock. Unreadable lines are skipped,
+including outcomes with invalid results or bases and routed decisions with invalid bases;
 the summary reports the count for each log in text and JSON. A new append starts
 on its own line even when a killed writer left an incomplete final line.
 

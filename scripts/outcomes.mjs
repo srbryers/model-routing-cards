@@ -9,6 +9,7 @@ import { readJevKey } from './jev-key.mjs';
 
 export const FIELD_LABEL = 'field outcomes — not a comparison';
 const RESULTS = ['pass', 'partial', 'fail', 'abandoned'];
+const BASES = ['trial', 'policy', 'card', 'card-cheaper'];
 
 export function validateGates(gates) {
   if (!gates || typeof gates !== 'object' || Array.isArray(gates)
@@ -96,6 +97,18 @@ export async function recordOutcome({ decisionId, result, gates = {}, failuresBe
 const basisCounts = () => ({ trial: 0, policy: 0, card: 0, 'card-cheaper': 0 });
 
 export function summarizeOutcomes(decisions, outcomes, policy, kind) {
+  const unreadableLogLines = { decisions: 0, outcomes: 0 };
+  // ⚠ Parsed JSON is not necessarily a valid record; never index counters with unchecked fields.
+  outcomes = outcomes.filter(outcome => {
+    if (RESULTS.includes(outcome?.result) && BASES.includes(outcome?.basis)) return true;
+    unreadableLogLines.outcomes++;
+    return false;
+  });
+  decisions = decisions.filter(decision => {
+    if (!decision?.route || BASES.includes(decision.basis)) return true;
+    unreadableLogLines.decisions++;
+    return false;
+  });
   // ⚠ Append order, not caller timestamps, defines the latest correction.
   const latest = new Map(outcomes.map(outcome => [outcome.decisionId, outcome]));
   const grouped = new Map();
@@ -128,7 +141,7 @@ export function summarizeOutcomes(decisions, outcomes, policy, kind) {
     return { kind, ready, qualifiedRoutes, card, task,
       nextStep: ready ? `Write or extend ${task} for ${kind}; ${card ? `check cards.byKind["${kind}"] maps to ${card}` : `map cards.byKind["${kind}"] to ${kind}.card.json`}; then run model-routing run ${task} --execute` : null };
   });
-  return { label: FIELD_LABEL, thresholds: { minOutcomesPerRoute, minRoutes }, rows, readiness };
+  return { label: FIELD_LABEL, thresholds: { minOutcomesPerRoute, minRoutes }, rows, readiness, unreadableLogLines };
 }
 
 export function formatOutcomes(summary) {
