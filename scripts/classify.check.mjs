@@ -54,7 +54,7 @@ export const CASES = [
   { brief: 'The retry loop stops one attempt early: it uses i < max where the repro shows it needs i <= max. Change that one line.',
     expect: ['simple-bug-fix'] },
   { brief: 'Add unit tests for the settings screen view model in our iOS app. Tests only, no app code changes.',
-    expect: ['ios'] },
+    expect: ['write-tests'] },
   { brief: 'Move the billing module from React Router 5 to React Router 7: update its routes, hooks and imports.',
     expect: ['migration'] },
 ];

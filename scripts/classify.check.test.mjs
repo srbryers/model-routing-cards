@@ -17,7 +17,7 @@ test('check list pins the four ambiguous briefs to one kind each', () => {
   const kindFor = pattern => CASES.find(c => pattern.test(c.brief)).expect;
   assert.deepEqual(kindFor(/do not know why/), ['hard-bug-fix']);
   assert.deepEqual(kindFor(/one line/), ['simple-bug-fix']);
-  assert.deepEqual(kindFor(/iOS app. Tests only/), ['ios']);
+  assert.deepEqual(kindFor(/iOS app. Tests only/), ['write-tests']);
   assert.deepEqual(kindFor(/React Router 7/), ['migration']);
 });
 test('check list covers the live brief and at least 8 other kinds', () => {

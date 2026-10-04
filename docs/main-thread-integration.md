@@ -41,7 +41,9 @@ When you pass `--kind` yourself, test work follows what the task changes:
 | Adds tests to find unknown bugs, then fixes them | `hard-bug-fix` |
 | Adds tests and fixes code across several modules | `multi-step-coding` |
 
-A task that also fixes product code is never `write-tests`.
+A task that also fixes product code is never `write-tests`. Tests-only work is
+`write-tests` in any codebase, including iOS. A stack trace or repro that points to
+the failing code makes a bug simple; if the cause must be found, it is hard.
 
 Act on `status` in the output:
 

@@ -672,9 +672,14 @@ test('ceiling: model-specific windows are ignored, and cannot hide a full pool',
 });
 test('kind descriptions carry the precedence Jev needs', () => {
   const text = id => policy.kinds[id].description;
-  for (const id of ['ios', 'ui-visual', '3d-work', 'data-contract', 'user-facing-copy']) assert.match(text(id), /Wins over .*write-tests, quick-edit, bounded-build/);
-  for (const id of ['write-tests', 'quick-edit', 'bounded-build']) assert.match(text(id), /Domain kinds .* win/);
-  assert.match(text('write-tests'), /iOS tests are ios/); assert.match(text('migration'), /Wins over multi-step-coding/);
+  for (const id of ['ios', 'ui-visual', '3d-work', 'data-contract', 'user-facing-copy']) {
+    assert.match(text(id), /Wins over .*quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests/);
+    assert.doesNotMatch(text(id), /including iOS tests/);
+  }
+  for (const id of ['quick-edit', 'bounded-build']) assert.match(text(id), /Domain kinds .* win/);
+  assert.match(text('write-tests'), /in any codebase, including iOS/); assert.doesNotMatch(text('write-tests'), /iOS tests are ios/);
+  assert.match(text('simple-bug-fix'), /stack trace or repro that points to the failing code counts as an obvious cause/);
+  assert.match(text('hard-bug-fix'), /repro or trace does not point to the cause/); assert.match(text('migration'), /Wins over multi-step-coding/);
   assert.match(text('first-pass-review'), /Muse or tier-1/); assert.match(text('routine-review'), /tier-2/);
   assert.match(text('high-risk-review'), /Wins over the other review kinds/);
   assert.match(text('simple-bug-fix'), /known/); assert.match(text('simple-bug-fix'), /hard-bug-fix/);

@@ -446,7 +446,7 @@
     "write-tests": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Adding or changing tests only. No product code changes. A task that also fixes product code is a bug fix or multi-step coding. Domain kinds (iOS, UI, 3D, data contract, user-facing copy) win: iOS tests are ios.",
+      "description": "Adding or changing tests only, in any codebase, including iOS. No product code changes. A task that also fixes product code is a bug fix or multi-step coding.",
       "candidates": [
         "muse"
       ],
@@ -490,7 +490,7 @@
     "simple-bug-fix": {
       "tier": 1,
       "reasoning": "high",
-      "description": "Fix a bug whose cause is known, or obvious from the repro, with a clear and bounded fix. Includes adding a test for it. If the cause must be found, it is hard-bug-fix.",
+      "description": "Fix a bug whose cause is known, or obvious from the repro, with a clear and bounded fix. A stack trace or repro that points to the failing code counts as an obvious cause. Includes adding a test for it. If the cause must be found, it is hard-bug-fix.",
       "candidates": [
         "muse"
       ],
@@ -523,7 +523,7 @@
     "hard-bug-fix": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Fix a bug whose cause is unknown and must be investigated, even if the symptom reproduces. If the brief says to find the cause, it is this kind. Includes writing tests to find unknown bugs and fixing what they expose.",
+      "description": "Fix a bug whose cause is unknown and must be investigated, even if the symptom reproduces. If the brief says to find the cause, it is this kind. Use this when the repro or trace does not point to the cause. Includes writing tests to find unknown bugs and fixing what they expose.",
       "candidates": [
         "sonnet",
         "astra",
@@ -570,7 +570,7 @@
     "3d-work": {
       "tier": 2,
       "reasoning": "high",
-      "description": "3D modeling, geometry, materials, shaders and spatial work. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
+      "description": "3D modeling, geometry, materials, shaders and spatial work. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
       "candidates": [
         "sonnet",
         "astra",
@@ -581,7 +581,7 @@
     "ui-visual": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "UI and visual design or build where the design is not settled: new screens, layout, look and feel. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
+      "description": "UI and visual design or build where the design is not settled: new screens, layout, look and feel. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
       "candidates": [
         "opus"
       ],
@@ -590,7 +590,7 @@
     "ios": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "Work inside an iOS app: Swift, Xcode, simulator, device and App Store problems, including iOS tests. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
+      "description": "Work inside an iOS app: Swift, Xcode, simulator, device and App Store problems. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
       "candidates": [
         "opus"
       ],
@@ -617,7 +617,7 @@
     "data-contract": {
       "tier": 3,
       "reasoning": "high",
-      "description": "Design or change data contracts, schemas or API shapes. Wins over write-tests, quick-edit, bounded-build and multi-step-coding.",
+      "description": "Design or change data contracts, schemas or API shapes. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
       "candidates": [
         "opus"
       ],
@@ -654,7 +654,7 @@
     "user-facing-copy": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Writing or rewriting copy a product's users read: onboarding text, chat copy, error messages and marketing. Not button labels, field names or menu items. Wins over docs, write-tests, quick-edit, bounded-build and multi-step-coding.",
+      "description": "Writing or rewriting copy a product's users read: onboarding text, chat copy, error messages and marketing. Not button labels, field names or menu items. Wins over docs, quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
       "candidates": [
         "muse"
       ],

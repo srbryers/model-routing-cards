@@ -38,8 +38,8 @@ its open questions. Benchmark evidence does not change policy by itself.
    read by the classifier. Keep descriptions short and plain, and make sure no two
    kinds claim the same work. Jev reads only the descriptions, so write the
    precedence into them: domain kinds (`ios`, `ui-visual`, `3d-work`, `data-contract`,
-   `user-facing-copy`) win over activity kinds (`write-tests`, `quick-edit`,
-   `bounded-build`, `multi-step-coding`); `migration` wins over `multi-step-coding`;
+   `user-facing-copy`) win over `quick-edit`, `bounded-build` and `multi-step-coding`,
+   but tests-only work is `write-tests` in any codebase, including iOS; `migration` wins over `multi-step-coding`;
    the higher-risk review kind wins; a bug whose cause must be found is
    `hard-bug-fix`, even if it reproduces. After changing one, run
    `node scripts/classify.check.mjs --execute` (17 live Jev calls, capped at $0.05).
