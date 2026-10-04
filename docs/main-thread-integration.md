@@ -2,7 +2,8 @@
 
 An orchestrating agent hands every task to `model-routing pick`. `pick`
 chooses the provider, model, reasoning level and machine, and prints the
-exact spawn command. It never spawns the worker itself.
+exact spawn command. It never spawns the worker itself. Reasoning is
+adjusted to the nearest level the model supports, and `why` says when.
 
 ## Pick
 
@@ -38,6 +39,7 @@ Act on `status` in the output:
 | `needs_kind` | The kind is unknown | Take one from `classifier.top`, or judge it, and re-run with `--kind` |
 | `external` | Follow `instruction` instead of spawning | If `requiresSpendApproval` is true, get approval first |
 | `blocked` | No allowed route | Report back and quote `why` |
+| `needs_approval` | The chosen route costs money per call | Show Sebastian the route and price, then re-run with `--spend-approved` once approved (see below) |
 
 ## Before dispatch
 
@@ -54,8 +56,8 @@ Routes with no reasoning setting (Pi) have no `--reasoning-level` flag.
 That is not "missing".
 
 Exit codes: 0 for `ok` or `external`, 3 for `needs_kind`, 4 for
-`blocked`, 2 for bad input. Exits 3 and 4 are answers, not errors: never
-fall back to manual routing on them. Every decision is logged with an id, its
+`blocked`, 5 for `needs_approval`, 2 for bad input. Exits 3, 4 and 5 are
+answers, not errors: never fall back to manual routing on them. Every decision is logged with an id, its
 `basis` (`policy`, `trial`, `card` or `card-cheaper`), `why`, and the
 rejected routes under `alternatives`. The log stores no brief text (only a
 SHA-256 hash and length), no titles, and no spawn arguments; those print to
@@ -105,6 +107,24 @@ bb thread spawn --project <project-id> --parent-self --section <section-id> \
   --reasoning-level medium --machine mac-studio --title "Rename UserButton" \
   --prompt-file /tmp/rename.md
 ```
+
+## Spending approval
+
+Status `needs_approval` (exit 5) means the chosen route costs money per
+call (a metered route). `spawn` is `null`. The command and price are under
+`approval: { spawnArgv, costPer1M, route }`.
+
+Show Sebastian the route and its price. Re-run with `--spend-approved`
+only after he approves, or if the task brief already grants that spend.
+`--spend-approved` is blanket: pass it only for the decision that was
+approved.
+
+## Metered routes
+
+These are Fireworks models via Pi, and Gemini via OpenRouter (currently
+disabled until credit is added). They are used only when quota stops or
+cooldowns remove every subscription candidate, or when a repo rule names
+one. Tier 3 has no metered fallback.
 
 ## Limit
 
