@@ -1,0 +1,684 @@
+{
+  "policyVersion": 1,
+  "updated": "2026-10-04",
+  "routes": {
+    "muse": {
+      "provider": "acp-muse",
+      "model": "muse-spark-1.3",
+      "machines": [
+        "mac-studio"
+      ],
+      "pool": "muse",
+      "vendor": "meta",
+      "type": "bb"
+    },
+    "sonnet": {
+      "provider": "claude-code",
+      "model": "claude-sonnet-5-5",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "claude",
+      "vendor": "anthropic",
+      "maxReasoning": "xhigh",
+      "type": "bb"
+    },
+    "opus": {
+      "provider": "claude-code",
+      "model": "claude-opus-5-5",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "claude",
+      "vendor": "anthropic",
+      "type": "bb"
+    },
+    "astra": {
+      "provider": "codex",
+      "model": "gpt-6-astra",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "codex",
+      "vendor": "openai",
+      "type": "bb"
+    },
+    "luna": {
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "codex",
+      "vendor": "openai",
+      "type": "bb"
+    },
+    "pi-local": {
+      "provider": "pi",
+      "model": "qwen-mlx//Users/sebastianbryers/llm/qwen38/Qwen3.8-27B-Uncensored-MLX/8-bit",
+      "machines": [
+        "mac-studio"
+      ],
+      "pool": "local",
+      "vendor": "local",
+      "runningByDefault": false,
+      "livenessCheck": "curl -s -m 3 127.0.0.1:8080/v1/models",
+      "type": "bb"
+    },
+    "gemini-copy": {
+      "type": "external",
+      "instruction": "Draft through the repo's `scripts/content_draft.py` (OpenRouter `google/gemini-3.8-flash`). Run with `--execute` only after Sebastian authorises the spend.",
+      "requiresSpendApproval": true,
+      "vendor": "google",
+      "pool": "metered"
+    },
+    "gemini-visual": {
+      "type": "external",
+      "instruction": "Gemini Flash implements this narrowly scoped visual task. Astra reasons and directs; see `~/.claude/skills/gemini-ui-design/SKILL.md`.",
+      "requiresSpendApproval": true,
+      "vendor": "google",
+      "pool": "metered"
+    },
+    "openai-image": {
+      "type": "external",
+      "instruction": "Generate with OpenAI image generation.",
+      "requiresSpendApproval": true,
+      "vendor": "openai",
+      "pool": "metered"
+    },
+    "gpt-5.5": {
+      "type": "bb",
+      "provider": "codex",
+      "model": "gpt-5.5",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "codex",
+      "vendor": "openai"
+    },
+    "terra": {
+      "type": "bb",
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "codex",
+      "vendor": "openai"
+    }
+  },
+  "pools": {
+    "muse": {
+      "readable": false,
+      "free": false,
+      "windows": []
+    },
+    "claude": {
+      "readable": true,
+      "free": false,
+      "windows": [
+        "five-hour",
+        "weekly"
+      ],
+      "requiredProvider": "claude-code"
+    },
+    "codex": {
+      "readable": true,
+      "free": false,
+      "windows": [
+        "weekly"
+      ]
+    },
+    "local": {
+      "readable": false,
+      "free": true,
+      "windows": []
+    },
+    "metered": {
+      "readable": false,
+      "free": false,
+      "windows": []
+    }
+  },
+  "tiers": {
+    "1": {
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ],
+      "reasoning": "medium"
+    },
+    "2": {
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": [],
+      "reasoning": "high"
+    },
+    "3": {
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": [],
+      "reasoning": "xhigh"
+    }
+  },
+  "kinds": {
+    "bounded-build": {
+      "tier": 1,
+      "reasoning": "high",
+      "description": "One feature slice, endpoint or script from a clear brief.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "quick-edit": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Renames, scoped refactors, lint and type fixes.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "write-tests": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Tests for existing code.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "docs": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Docs, READMEs, AGENTS.md, changelogs and copy passes.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "scouting": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Read-only investigation: explain code, locate files, map a repo or summarize a PR.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "first-pass-review": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "First review of a diff, never the merge gate.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "simple-bug-fix": {
+      "tier": 1,
+      "reasoning": "high",
+      "description": "Fix a bug with a clear reproduction.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "multi-step-coding": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "A feature across several files or long-running coding work.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "migration": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Code migrations and larger refactors.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "hard-bug-fix": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Diagnose and fix a bug with no clear reproduction or an unknown cause.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "ci-terminal": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Failing pipelines, build scripts and environment fixes.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "routine-review": {
+      "tier": 2,
+      "reasoning": "medium",
+      "description": "Review of Muse or tier-2 work.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "skill-workflow": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "Work requiring skills such as SLOPE, ship gates, sim-lab or kit-curator; Muse follows skills poorly.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": [],
+      "excludedRoutes": [
+        "muse"
+      ]
+    },
+    "3d-work": {
+      "tier": 2,
+      "reasoning": "high",
+      "description": "3D modeling, geometry, materials, shaders and spatial work.",
+      "candidates": [
+        "sonnet",
+        "astra"
+      ],
+      "fallbacks": []
+    },
+    "ui-visual": {
+      "tier": 3,
+      "reasoning": "xhigh",
+      "description": "UI and visual work.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "ios": {
+      "tier": 3,
+      "reasoning": "xhigh",
+      "description": "iOS work.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "architecture": {
+      "tier": 3,
+      "reasoning": "xhigh",
+      "description": "Architecture decisions.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "high-risk-review": {
+      "tier": 3,
+      "reasoning": "high",
+      "description": "UI, security or data-contract review, and anything about to merge to a deploy branch.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "data-contract": {
+      "tier": 3,
+      "reasoning": "high",
+      "description": "Design or change data contracts, schemas or API shapes.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    },
+    "bulk-text": {
+      "tier": "local",
+      "reasoning": null,
+      "description": "Bulk, private or low-stakes text work.",
+      "candidates": [
+        "pi-local"
+      ],
+      "fallbacks": [
+        "muse",
+        "luna"
+      ],
+      "fallbackReasoning": "medium",
+      "crossTier": true,
+      "crossTierReason": "Local work falls back to tier 1 when Pi is unavailable."
+    },
+    "image-generation": {
+      "tier": "image",
+      "reasoning": null,
+      "description": "Image generation through Codex image tooling; pi-imagen is an alternative tool, not a route.",
+      "candidates": [
+        "astra"
+      ],
+      "fallbacks": [],
+      "tool": "codex-image",
+      "alternativeTool": "pi-imagen",
+      "crossTier": true,
+      "crossTierReason": "Image tooling uses Astra outside the paid tier choices."
+    },
+    "user-facing-copy": {
+      "tier": 1,
+      "reasoning": "medium",
+      "description": "Writing or rewriting copy a product's users read: onboarding text, chat copy, error messages and marketing. Not button labels, field names or menu items.",
+      "candidates": [
+        "muse"
+      ],
+      "fallbacks": [
+        "luna"
+      ]
+    },
+    "visual-implementation": {
+      "tier": 3,
+      "reasoning": "xhigh",
+      "description": "A narrowly scoped visual or styling task with a settled design.",
+      "candidates": [
+        "opus"
+      ],
+      "fallbacks": []
+    }
+  },
+  "escalation": {
+    "escalateAfterFailures": 2,
+    "failuresScope": "current-tier",
+    "steps": {
+      "1": {
+        "tier": 2,
+        "reasoning": "high"
+      },
+      "2": {
+        "tier": 3,
+        "reasoning": "xhigh"
+      }
+    }
+  },
+  "quota": {
+    "overridesBeatHardStops": false,
+    "thresholds": [
+      {
+        "pool": "claude",
+        "window": "five-hour",
+        "usedPercentAbove": 70,
+        "tiers": [
+          2
+        ],
+        "action": "prefer-route",
+        "route": "astra"
+      },
+      {
+        "pool": "claude",
+        "window": "five-hour",
+        "usedPercentAbove": 80,
+        "action": "reserve-pool",
+        "allowedTiers": [
+          3
+        ],
+        "allowMainThreads": true
+      },
+      {
+        "pool": "codex",
+        "window": "weekly",
+        "usedPercentAbove": 85,
+        "tiers": [
+          2
+        ],
+        "action": "prefer-route",
+        "route": "sonnet"
+      }
+    ],
+    "limitErrors": [
+      {
+        "route": "muse",
+        "fallback": "luna",
+        "cooldownHours": 5
+      }
+    ],
+    "allLimited": {
+      "route": "pi-local",
+      "kinds": [
+        "bulk-text"
+      ],
+      "otherwise": "stop-and-report"
+    }
+  },
+  "tieBreak": {
+    "tier": 2,
+    "order": [
+      "repo-override",
+      "machine",
+      "weekly-headroom",
+      "alternate"
+    ],
+    "pcCandidates": [
+      "sonnet",
+      "astra"
+    ],
+    "tieBreak": "pace",
+    "window": "weekly",
+    "onTie": "alternate",
+    "routes": [
+      "sonnet",
+      "astra"
+    ],
+    "label": "trial"
+  },
+  "review": {
+    "differentVendor": true,
+    "kinds": [
+      "first-pass-review",
+      "routine-review",
+      "high-risk-review"
+    ]
+  },
+  "cards": {
+    "requireTrust": "CALIBRATED",
+    "maxAgeDays": 30
+  },
+  "machines": {
+    "mac-studio": {
+      "description": "Mac Studio; supports Muse and the optional local server."
+    },
+    "pc": {
+      "description": "PC; no Muse or pi-local route."
+    }
+  },
+  "repos": {
+    "srbryers/wedding": {
+      "rules": [
+        {
+          "kinds": [
+            "data-contract"
+          ],
+          "route": "astra",
+          "source": "AGENTS.md",
+          "why": "Data contracts go to OpenAI under AGENTS.md."
+        },
+        {
+          "kinds": [
+            "high-risk-review"
+          ],
+          "note": "data-contract reviews go to OpenAI (AGENTS.md)",
+          "source": "AGENTS.md",
+          "why": "Only data-contract reviews have an OpenAI requirement; other high-risk reviews keep shared routing."
+        }
+      ]
+    },
+    "srbryers/fathoms-game": {
+      "machines": [
+        "pc"
+      ],
+      "rules": [
+        {
+          "kinds": [
+            "routine-review",
+            "high-risk-review",
+            "architecture",
+            "hard-bug-fix"
+          ],
+          "route": "astra",
+          "source": "docs/agent/act0-model-routing.md",
+          "why": "Substantive review and reasoning go to Astra; this 8 GB repo runs on PC."
+        }
+      ]
+    },
+    "srbryers/flora-studio": {
+      "rules": [
+        {
+          "kinds": [
+            "3d-work"
+          ],
+          "route": "astra",
+          "source": "CLAUDE.md",
+          "why": "All 3D work goes to Astra."
+        },
+        {
+          "kinds": [
+            "routine-review",
+            "first-pass-review"
+          ],
+          "route": "luna",
+          "source": "docs/agent/model-delegation.md",
+          "why": "Luna is the default for non-3D review."
+        }
+      ]
+    },
+    "srbryers/prelude-social-skills-coach": {
+      "rules": [
+        {
+          "kinds": [
+            "*"
+          ],
+          "source": ".claude/rules/sprint-protocol.md",
+          "why": "Implementation must receive independent review.",
+          "note": "Independent review of every implementation (Gate 5). An author never approves its own change."
+        },
+        {
+          "kinds": [
+            "user-facing-copy"
+          ],
+          "route": "gemini-copy",
+          "source": "CLAUDE.md",
+          "why": "Agents must not write user-facing copy; simple declarative strings are quick-edit."
+        },
+        {
+          "kinds": [
+            "high-risk-review",
+            "routine-review"
+          ],
+          "route": "astra",
+          "source": ".codex/agents/",
+          "why": "Critical review. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules.",
+          "reasoning": "high"
+        },
+        {
+          "kinds": [
+            "bounded-build",
+            "multi-step-coding"
+          ],
+          "route": "gpt-5.5",
+          "source": ".codex/agents/",
+          "why": "Bounded implementation. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules.",
+          "reasoning": "medium"
+        },
+        {
+          "kinds": [
+            "quick-edit",
+            "simple-bug-fix"
+          ],
+          "route": "terra",
+          "source": ".codex/agents/",
+          "why": "Small, clear fix.",
+          "reasoning": "medium"
+        },
+        {
+          "kinds": [
+            "docs"
+          ],
+          "route": "luna",
+          "source": ".codex/agents/",
+          "why": "Documentation uses Luna.",
+          "reasoning": "low"
+        },
+        {
+          "kinds": [
+            "visual-implementation"
+          ],
+          "route": "gemini-visual",
+          "source": "~/.claude/skills/gemini-ui-design/SKILL.md",
+          "why": "Gemini implements settled visual tasks under Astra direction."
+        },
+        {
+          "kinds": [
+            "ui-visual",
+            "architecture"
+          ],
+          "route": "astra",
+          "source": "~/.claude/skills/gemini-ui-design/SKILL.md",
+          "why": "Astra reasons and directs. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules."
+        },
+        {
+          "kinds": [
+            "image-generation"
+          ],
+          "route": "openai-image",
+          "source": "CLAUDE.md",
+          "why": "Use OpenAI image generation."
+        }
+      ]
+    },
+    "srbryers/ui-kit": {
+      "rules": [
+        {
+          "kinds": [
+            "*"
+          ],
+          "excludeRoutes": [
+            "muse"
+          ],
+          "source": "user instruction (2026-10-04)",
+          "why": "Kit changes require a skill-driven gate.",
+          "note": "Kit changes go through the kit-curator gate (skill-driven); Muse follows skills poorly."
+        }
+      ]
+    }
+  }
+}
