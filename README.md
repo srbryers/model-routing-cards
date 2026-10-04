@@ -84,7 +84,11 @@ Quota is read by a local `bb` command; `--no-quota` skips it, and main threads
 should pass `--require-quota`. The command uses BB's own login, without a model
 call or this repo's credentials. Unknown quota adds **“quota unknown: hard stops
 not applied”** to the notes; `--require-quota` blocks the affected decision.
-Tier 2 uses weekly pace; ties alternate as `trial`, never a measured winner.
+Tier 2 is Sonnet, Astra or Sol. Weekly pace picks a pool (Claude or Codex).
+If Claude wins, the route is Sonnet. If Codex wins, `pick` alternates between
+Astra and Sol. If the pools are within 5 points, it rotates Sonnet, Astra, Sol.
+Alternating choices are labelled `trial`, never a measured winner. Sol runs on
+the Mac Studio only: it needs Codex CLI 0.160 or later, and the PC has 0.153.
 Pass `--author ROUTE_OR_VENDOR` for an independent review. Use
 `model-routing limit muse --hours 5` after a worker hits its limit.
 

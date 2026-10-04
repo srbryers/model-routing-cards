@@ -11,14 +11,20 @@ function readOptional(file, fallback) {
   try { return readFileSync(file, 'utf8'); }
   catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
 }
-export function readState(dir) {
+export function readState(dir, policy) {
   const alternation = {};
+  const poolAlternation = {};
   const { records, unreadableLogLines } = readStateLog(dir, 'decisions.jsonl');
   // ⚠ The log is the alternation record: a crash cannot advance a trial without logging it.
   for (const decision of records) {
-    if (decision.status === 'ok' && decision.basis === 'trial') alternation[decision.kind] = decision.route;
+    if (decision.status !== 'ok' || decision.basis !== 'trial') continue;
+    alternation[decision.kind] = decision.route;
+    // ⚠ Logged decisions carry no pool; map the route through policy so a codex pair
+    // keeps its own turn even when a tie rotated through Sonnet in between.
+    const pool = Object.hasOwn(policy?.routes ?? {}, decision.route) ? policy.routes[decision.route].pool : undefined;
+    if (pool) (poolAlternation[decision.kind] ??= {})[pool] = decision.route;
   }
-  return { alternation, unreadableLogLines, limits: JSON.parse(readOptional(join(dir, 'limits.json'), '{}')) };
+  return { alternation, poolAlternation, unreadableLogLines, limits: JSON.parse(readOptional(join(dir, 'limits.json'), '{}')) };
 }
 export function readDecisions(dir) {
   return readStateLog(dir, 'decisions.jsonl').records;

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { withStateLock, readState, logDecision } from './state.mjs';
+import { loadPolicy } from './policy.mjs';
 function temp(t) {
   const dir = mkdtempSync(join(tmpdir(), 'routing-lock-'));
   t.after(() => rmSync(dir, { recursive: true, force: true })); return dir;
@@ -71,4 +72,20 @@ test('stale reclamation rechecks an owner replaced during the PID check', async 
   rmSync(join(dir, '.lock'), { recursive: true, force: true });
   await operation;
   assert.equal(acquired, true);
+});
+test('trial history is kept per kind and per pool, mapped through policy', t => {
+  const dir = temp(t); const policy = loadPolicy();
+  for (const route of ['sonnet', 'astra', 'sol', 'sonnet']) logDecision(dir, { status: 'ok', basis: 'trial', kind: 'docs', route });
+  logDecision(dir, { status: 'ok', basis: 'policy', kind: 'docs', route: 'astra' });
+  logDecision(dir, { status: 'blocked', basis: 'trial', kind: 'docs', route: 'astra' });
+  logDecision(dir, { status: 'ok', basis: 'trial', kind: 'migration', route: 'astra' });
+  const state = readState(dir, policy);
+  assert.equal(state.alternation.docs, 'sonnet');
+  assert.deepEqual(state.poolAlternation.docs, { claude: 'sonnet', codex: 'sol' });
+  assert.deepEqual(state.poolAlternation.migration, { codex: 'astra' });
+  // A route that policy no longer knows still advances the per-kind record.
+  logDecision(dir, { status: 'ok', basis: 'trial', kind: 'docs', route: 'retired' });
+  assert.equal(readState(dir, policy).alternation.docs, 'retired');
+  assert.deepEqual(readState(dir, policy).poolAlternation.docs, { claude: 'sonnet', codex: 'sol' });
+  assert.deepEqual(readState(dir).poolAlternation, {});
 });

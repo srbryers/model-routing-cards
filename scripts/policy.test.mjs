@@ -174,7 +174,7 @@ test('two failures escalate quick-edit once to tier 2 at high', () => {
   assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { failures: 1 }).candidates), ['muse', 'luna']);
   for (const failures of [2, 3]) {
     const result = resolveCandidates(policy, 'quick-edit', { failures }).candidates;
-    assert.deepEqual(ids(result), ['sonnet', 'astra']);
+    assert.deepEqual(ids(result), ['sonnet', 'astra', 'sol']);
     assert.ok(result.every(c => c.reasoning === 'high' && c.reason.includes('tier 1 -> 2')));
   }
 });
@@ -190,7 +190,7 @@ test('two failures escalate tier 2 to Opus xhigh; terminal tiers stay unchanged'
 
 test('flora: Astra for 3D, Luna for review; overrides deduplicate and retain policy fallbacks', () => {
   const repo = 'srbryers/flora-studio';
-  assert.deepEqual(ids(resolveCandidates(policy, '3d-work', { repo }).candidates), ['astra', 'sonnet']);
+  assert.deepEqual(ids(resolveCandidates(policy, '3d-work', { repo }).candidates), ['astra', 'sonnet', 'sol']);
   assert.deepEqual(ids(resolveCandidates(policy, 'first-pass-review', { repo }).candidates), ['luna', 'muse']);
   assert.equal(resolveCandidates(policy, 'routine-review', { repo }).candidates[0].route, 'luna');
   assert.match(resolveCandidates(policy, '3d-work', { repo }).candidates[0].reason, /CLAUDE.md/);
@@ -218,7 +218,7 @@ test('wedding routes contracts to Astra and only notes its contract-review rule'
 
 test('override beats escalation; explicit effort wins, inherited effort is capped', () => {
   const result = resolveCandidates(policy, 'quick-edit', { failures: 2, override: rule('luna', ['quick-edit'], { reasoning: 'low' }) }).candidates;
-  assert.deepEqual(ids(result), ['luna', 'sonnet', 'astra']);
+  assert.deepEqual(ids(result), ['luna', 'sonnet', 'astra', 'sol']);
   assert.equal(result[0].reasoning, 'low');
   const p = copy(); p.kinds.architecture.reasoning = 'max';
   const capped = resolveCandidates(p, 'architecture', { override: rule('sonnet', ['architecture']) }).candidates;
@@ -421,13 +421,13 @@ test('repoKey decodes injected Buffer output', () => {
 
 test('repo escalation retains marked preference before next-tier candidates', () => {
   const result = resolveCandidates(policy, 'docs', { repo: 'srbryers/prelude-social-skills-coach', failures: 2 });
-  assert.deepEqual(ids(result.candidates), ['luna', 'sonnet', 'astra']);
+  assert.deepEqual(ids(result.candidates), ['luna', 'sonnet', 'astra', 'sol']);
   assert.deepEqual(result.candidates.map(c => [c.source, c.tier, c.fallback, c.escalated]),
-    [['repo', 2, false, true], ['tier', 2, true, true], ['tier', 2, true, true]]);
+    [['repo', 2, false, true], ['tier', 2, true, true], ['tier', 2, true, true], ['tier', 2, true, true]]);
   assert.equal(result.candidates[0].reasoning, 'low');
   const override = { policyVersion: 1, rules: [{ kinds: ['docs'], excludeRoutes: ['sonnet'], source: 'AGENTS.md', why: 'Use another vendor.' }] };
   const filtered = resolveCandidates(policy, 'docs', { repo: 'srbryers/prelude-social-skills-coach', override, failures: 2 });
-  assert.deepEqual(ids(filtered.candidates), ['luna', 'astra']);
+  assert.deepEqual(ids(filtered.candidates), ['luna', 'astra', 'sol']);
   assert.ok(filtered.blocked.some(b => b.route === 'sonnet' && /excluded/.test(b.why)));
 });
 
@@ -478,6 +478,21 @@ test('Codex and Muse pool/provider identity is bidirectional', () => {
     ['muse', 'pool', 'local', /acp-muse provider and muse pool/], ['muse', 'provider', 'pi', /acp-muse provider and muse pool/],
     ['pi-local', 'pool', 'muse', /acp-muse provider and muse pool/],
   ]) { const p = copy(); p.routes[id][field] = value; invalid(validatePolicy(p), pattern); }
+});
+
+test('sol is a Mac Studio codex route in tier 2, and its pool must stay codex', () => {
+  const sol = policy.routes.sol;
+  assert.deepEqual([sol.provider, sol.model, sol.pool, sol.vendor, sol.machines], ['codex', 'gpt-6.1-sol', 'codex', 'openai', ['mac-studio']]);
+  assert.match(sol.note, /Codex CLI 0\.160 or later/); assert.match(sol.note, /assumed/);
+  assert.ok(policy.tiers['2'].candidates.includes('sol'));
+  for (const [id, kind] of Object.entries(policy.kinds)) if (kind.tier === 2) assert.ok(kind.candidates.includes('sol'), id);
+  assert.deepEqual(policy.tieBreak.routes, ['sonnet', 'astra', 'sol']);
+  for (const [field, value, pattern] of [['pool', 'claude', /Claude requires|codex provider and pool/],
+    ['provider', 'claude-code', /Claude requires|codex provider and pool/], ['pool', 'local', /codex provider and pool/]]) {
+    const p = copy(); p.routes.sol[field] = value; invalid(validatePolicy(p), pattern);
+  }
+  const p = copy(); p.tiers['2'].candidates = ['sonnet', 'astra']; for (const kind of Object.values(p.kinds)) if (kind.tier === 2) kind.candidates = ['sonnet', 'astra'];
+  invalid(validatePolicy(p), /tieBreak.routes must all be tier 2 candidates/);
 });
 
 test('contributor is rejected regardless of case, field or hyphen', () => {
@@ -553,7 +568,7 @@ test('a superseded wildcard route cannot rescue an override that excludes every 
 
 test('task-wide failures apply every escalation step and cap at tier 3', () => {
   for (const [failures, routes, tier, reasoning] of [
-    [2, ['sonnet', 'astra'], 2, 'high'], [4, ['opus'], 3, 'xhigh'], [9, ['opus'], 3, 'xhigh'],
+    [2, ['sonnet', 'astra', 'sol'], 2, 'high'], [4, ['opus'], 3, 'xhigh'], [9, ['opus'], 3, 'xhigh'],
   ]) {
     const { candidates } = resolveCandidates(policy, 'quick-edit', { failures });
     assert.deepEqual(ids(candidates), routes);

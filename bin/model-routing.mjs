@@ -136,7 +136,7 @@ export async function runPick(args, deps = {}) {
   const dir = deps.stateDir ?? stateDirectory();
   const decision = await withStateLock(dir, () => {
     const now = deps.now ?? new Date();
-    const state = readState(dir);
+    const state = readState(dir, policy);
     const decision = pick(input, { policy, repo, override, quota, classifier, cards, localConfig, localConfigError, ...state, now,
       id: `dec_${new Date(now).getTime()}_${randomUUID().slice(0, 8)}` });
     decision.why.push(...found.why);

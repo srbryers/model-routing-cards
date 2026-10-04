@@ -58,6 +58,27 @@
         "openai/gpt-6-astra"
       ]
     },
+    "sol": {
+      "provider": "codex",
+      "model": "gpt-6.1-sol",
+      "machines": [
+        "mac-studio"
+      ],
+      "pool": "codex",
+      "vendor": "openai",
+      "type": "bb",
+      "supportedReasoning": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "note": "Mac Studio only: the PC's Codex CLI is 0.153, which rejects this model (\"not supported when using Codex with a ChatGPT account\"); the route needs Codex CLI 0.160 or later. BB's model list does not show gpt-6.1-sol yet, so supportedReasoning is assumed from gpt-6-astra (without ultra, which policy never requests).",
+      "cardModels": [
+        "openai/gpt-6.1-sol"
+      ]
+    },
     "luna": {
       "provider": "codex",
       "model": "gpt-5.6-luna",
@@ -384,7 +405,8 @@
     "2": {
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": [],
       "reasoning": "high"
@@ -481,7 +503,8 @@
       "description": "A feature across several files or long-running coding work.",
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": []
     },
@@ -491,7 +514,8 @@
       "description": "Code migrations and larger refactors.",
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": []
     },
@@ -501,7 +525,8 @@
       "description": "Diagnose and fix a bug with no clear reproduction or an unknown cause.",
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": []
     },
@@ -511,7 +536,8 @@
       "description": "Failing pipelines, build scripts and environment fixes.",
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": []
     },
@@ -521,7 +547,8 @@
       "description": "Review of Muse or tier-2 work.",
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": []
     },
@@ -531,7 +558,8 @@
       "description": "Work requiring skills such as SLOPE, ship gates, sim-lab or kit-curator; Muse follows skills poorly.",
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": [],
       "excludedRoutes": [
@@ -544,7 +572,8 @@
       "description": "3D modeling, geometry, materials, shaders and spatial work.",
       "candidates": [
         "sonnet",
-        "astra"
+        "astra",
+        "sol"
       ],
       "fallbacks": []
     },
@@ -726,7 +755,8 @@
     "onTie": "alternate",
     "routes": [
       "sonnet",
-      "astra"
+      "astra",
+      "sol"
     ],
     "label": "trial",
     "marginPoints": 5

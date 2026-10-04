@@ -28,7 +28,7 @@ export function quotaPace(snapshot, now) {
 
 /** Pure decision: no clocks, files, commands, credentials or state mutation. */
 export function pick(input, deps) {
-  const { policy, override = null, repo = null, classifier, alternation = {}, limits = {}, cards = {}, localConfig = null, localConfigError = null } = deps;
+  const { policy, override = null, repo = null, classifier, alternation = {}, poolAlternation = {}, limits = {}, cards = {}, localConfig = null, localConfigError = null } = deps;
   const approvedRoutes = input.approvedRoutes ?? [];
   if (!Array.isArray(approvedRoutes) || approvedRoutes.some(route => typeof route !== 'string' || !Object.hasOwn(policy.routes, route))) {
     throw new TypeError('approvedRoutes must be a list of known route IDs');
@@ -166,26 +166,46 @@ export function pick(input, deps) {
   }
   let selected = candidates[0];
   let basis = 'policy';
-  let tied = false;
   let paceUsed = false;
-  const pair = policy.tieBreak.routes.map(id => candidates.find(c => c.route === id));
+  // ⚠ Pace chooses a pool; routes that share the winning pool have no evidence between
+  // them, so they alternate. A pace tie rotates over every allowed tie-break route.
+  const tie = policy.tieBreak;
+  const group = tie.routes.map(id => candidates.find(c => c.route === id)).filter(Boolean);
   const repoFirst = selected.source === 'repo' || selected.source === 'file';
-  if (!repoFirst && selected.tier === policy.tieBreak.tier && pair.every(Boolean)) {
-    paceUsed = true;
-    const heads = pair.map(c => quota[c.pool]?.[policy.tieBreak.window]?.headroom);
-    if (heads.every(Number.isFinite)) {
-      why.push(`${pair[0].route} weekly headroom ${heads[0].toFixed(2)} points; ${pair[1].route} weekly headroom ${heads[1].toFixed(2)} points`);
-      tied = Math.abs(heads[0] - heads[1]) <= policy.tieBreak.marginPoints;
-      if (!tied) selected = pair[heads[0] > heads[1] ? 0 : 1];
-    } else {
-      tied = true;
-      why.push('weekly pace unavailable for one or both pools; no evidence to prefer either');
-    }
-    if (tied) {
-      selected = pair.find(c => c.route !== alternation[kind]) ?? pair[0];
+  let rotation = [];
+  let lastTrial;
+  if (!repoFirst && selected.tier === tie.tier && group.length >= 2) {
+    const pools = [...new Set(group.map(c => c.pool))];
+    rotation = group;
+    if (pools.length > 1) {
+      paceUsed = true;
+      const heads = pools.map(pool => quota[pool]?.[tie.window]?.headroom);
+      if (heads.every(Number.isFinite)) {
+        // Label each pool by its first route so the pace line names the routes compared.
+        why.push(pools.map((pool, i) => `${group.find(c => c.pool === pool).route} weekly headroom ${heads[i].toFixed(2)} points`).join('; '));
+        const ranked = pools.map((pool, i) => ({ pool, head: heads[i] })).sort((a, b) => b.head - a.head);
+        if (ranked[0].head - ranked[1].head > tie.marginPoints) {
+          rotation = group.filter(c => c.pool === ranked[0].pool);
+          if (rotation.length > 1) why.push(`${ranked[0].pool} pool leads by pace; its routes have no evidence between them`);
+        }
+      } else why.push('weekly pace unavailable for one or both pools; no evidence to prefer either');
+    } else why.push(`only the ${pools[0]} pool is allowed; its routes have no evidence between them`);
+    if (rotation.length > 1) {
+      const rotatingPools = new Set(rotation.map(c => c.pool));
+      // Alternation is keyed per kind, and per pool when the rotation stays inside one pool.
+      lastTrial = rotatingPools.size === 1
+        ? poolAlternation[kind]?.[rotation[0].pool]
+          ?? (policy.routes[alternation[kind]]?.pool === rotation[0].pool ? alternation[kind] : undefined)
+        : alternation[kind];
+      const start = tie.routes.indexOf(lastTrial);
+      let next;
+      for (let step = 1; step <= tie.routes.length && !next; step++) {
+        next = rotation.find(c => c.route === tie.routes[(start + step) % tie.routes.length]);
+      }
+      selected = next;
       basis = 'trial';
-      why.push(`alternate ${policy.tieBreak.routes.join('/')}; tie margin ${policy.tieBreak.marginPoints} points; last trial ${alternation[kind] ?? 'none'}`);
-    }
+      why.push(`alternate ${rotation.map(c => c.route).join('/')}; tie margin ${tie.marginPoints} points; last trial ${lastTrial ?? 'none'}`);
+    } else selected = rotation[0];
   }
   const file = policy.cards.byKind[kind];
   const card = cards[kind];
@@ -202,20 +222,22 @@ export function pick(input, deps) {
     if (!Number.isFinite(age) || age < 0 || age >= policy.cards.maxAgeDays) why.push(`${label}, stale or invalid date, ignored`);
     else if (card.trust === 'CALIBRATED' && winner) {
       selected = winner; basis = 'card'; why.push(`${label}, fresh winner maps to allowed route ${winner.route}`);
-    } else if (card.trust === 'NO_CLEAR_WINNER' && tied && winner && pair.includes(winner)) {
-      const rows = pair.map(c => (Array.isArray(card.models) ? card.models : []).find(row => policy.routes[c.route].cardModels?.includes(row.model)));
+    } else if (card.trust === 'NO_CLEAR_WINNER' && rotation.length > 1 && winner && rotation.includes(winner)) {
+      const rows = rotation.map(c => (Array.isArray(card.models) ? card.models : []).find(row => policy.routes[c.route].cardModels?.includes(row.model)));
       const costs = rows.map(row => row?.cost_per_accepted_usd);
-      const winIndex = pair.indexOf(winner);
+      const winIndex = rotation.indexOf(winner);
+      const others = costs.filter((_, i) => i !== winIndex);
+      // ⚠ A rotation route with no measured row cannot be shown more expensive.
       if (costs.every(c => typeof c === 'number' && Number.isFinite(c) && c >= 0)
-        && rows[0].cost_source === rows[1].cost_source && costs[winIndex] < costs[1 - winIndex]) {
-        selected = winner; basis = 'card-cheaper'; why.push(`${label}, within pace tie; measured cost per accepted result ${costs[winIndex]} < ${costs[1 - winIndex]}`);
+        && rows.every(row => row.cost_source === rows[0].cost_source) && others.every(c => costs[winIndex] < c)) {
+        selected = winner; basis = 'card-cheaper'; why.push(`${label}, within tie; measured cost per accepted result ${costs[winIndex]} < ${Math.min(...others)}`);
       } else why.push(`${label}, costs unknown, incomparable or not cheaper, ignored`);
     } else why.push(`${label}, ${card.trust === 'CALIBRATED' ? 'winner not allowed' : card.trust === 'NO_CLEAR_WINNER' ? 'no eligible pace tie' : 'insufficient evidence'}, ignored`);
   }
   // ⚠ Unused fallback pools cannot block a choice they did not influence.
   const relevantPools = new Set(preferencePools.has(selected.pool) ? preferencePools : []);
   if (selected.type !== 'external') relevantPools.add(selected.pool);
-  if (paceUsed && basis !== 'card') for (const c of pair) relevantPools.add(c.pool);
+  if (paceUsed && basis !== 'card') for (const c of group) relevantPools.add(c.pool);
   const unknownPools = [...relevantPools].filter(pool => policy.pools[pool].readable && missingQuota(pool));
   if (input.requireQuota && unknownPools.length && selected.type !== 'external') {
     result.status = 'blocked';
