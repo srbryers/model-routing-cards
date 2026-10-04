@@ -42,6 +42,8 @@ function checks(errors) {
   return { check, fields, list, reasoning };
 }
 
+export const machineIds = policy => Object.keys(policy.machines).filter(id => id !== 'default');
+
 function capFor(id, route) {
   // ⚠ A renamed Sonnet route must not bypass its token-use cap.
   return sonnet(id, route) ? 'xhigh' : route?.maxReasoning;
@@ -75,6 +77,8 @@ export function validatePolicy(policy) {
   const kinds = object(policy.kinds) ? policy.kinds : {};
   const tiers = object(policy.tiers) ? policy.tiers : {};
   const machines = object(policy.machines) ? policy.machines : {};
+  const machineNames = Object.keys(machines).filter(id => id !== 'default');
+  check(machineNames.includes(machines.default), 'machines.default must name a configured machine');
   const routeIds = Object.keys(routes);
   const routeList = (value, path, min = 0) => {
     const ids = list(value, path, routeIds, min);
@@ -86,6 +90,7 @@ export function validatePolicy(policy) {
   for (const id of ['muse', 'claude', 'codex', 'local']) check(has(pools, id), `pools.${id} is required`);
   for (const id of ['mac-studio', 'pc']) check(has(machines, id), `machines.${id} is required`);
   for (const [id, entry] of Object.entries(machines)) {
+    if (id === 'default') continue;
     if (fields(entry, `machines.${id}`, ['description'])) check(nonempty(entry.description), `machines.${id}.description is required`);
   }
   for (const [id, entry] of Object.entries(pools)) {
@@ -128,7 +133,7 @@ export function validatePolicy(policy) {
     check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
     check(nonempty(route.model), `${path}.model is required`);
-    list(route.machines, `${path}.machines`, Object.keys(machines), 1);
+    list(route.machines, `${path}.machines`, machineNames, 1);
     check(has(pools, route.pool), `${path}.pool: unknown pool ${route.pool}`);
     check(['anthropic', 'openai', 'meta', 'local', 'google'].includes(route.vendor), `${path}.vendor is unsupported`);
     const requiredProvider = route.pool === 'claude' ? 'claude-code' : pools[route.pool]?.requiredProvider;
@@ -211,7 +216,7 @@ export function validatePolicy(policy) {
     }
   }
   const quota = policy.quota;
-  if (fields(quota, 'quota', ['overridesBeatHardStops', 'thresholds', 'limitErrors', 'allLimited'])) {
+  if (fields(quota, 'quota', ['overridesBeatHardStops', 'thresholds', 'limitErrors'])) {
     check(quota.overridesBeatHardStops === false, 'quota.overridesBeatHardStops must be false');
     check(Array.isArray(quota.thresholds), 'quota.thresholds must be an array');
     for (const [i, rule] of (Array.isArray(quota.thresholds) ? quota.thresholds : []).entries()) {
@@ -233,12 +238,6 @@ export function validatePolicy(policy) {
       if (!fields(rule, path, ['route', 'fallback', 'cooldownHours'])) continue;
       routeList([rule.route, rule.fallback], path);
       check(Number.isFinite(rule.cooldownHours) && rule.cooldownHours > 0, `${path}.cooldownHours must be positive`);
-    }
-    if (fields(quota.allLimited, 'quota.allLimited', ['route', 'kinds', 'otherwise'])) {
-      routeList([quota.allLimited.route], 'quota.allLimited.route');
-      check(routes[quota.allLimited.route]?.pool === 'local', 'quota.allLimited.route must use the local pool');
-      list(quota.allLimited.kinds, 'quota.allLimited.kinds', KIND_IDS, 1);
-      check(quota.allLimited.otherwise === 'stop-and-report', 'quota.allLimited.otherwise must be stop-and-report');
     }
   }
   const tie = policy.tieBreak;
@@ -262,7 +261,7 @@ export function validatePolicy(policy) {
     check(object(policy.cards.byKind), 'cards.byKind must be an object');
     for (const [kind, file] of Object.entries(object(policy.cards.byKind) ? policy.cards.byKind : {})) {
       check(has(kinds, kind), `cards.byKind: unknown kind ${kind}`);
-      check(typeof file === 'string' && /^tasks\/runs\/[a-z0-9-]+\.card\.json$/.test(file), `cards.byKind.${kind} must name a tasks/runs/<task-id>.card.json file`);
+      check(typeof file === 'string' && /^[a-z0-9-]+\.card\.json$/.test(file), `cards.byKind.${kind} must name a <task-id>.card.json basename`);
     }
     check(policy.cards.requireTrust === 'CALIBRATED', 'cards.requireTrust must be CALIBRATED');
     // ⚠ JSON needs a literal; validate against the trust gate so it cannot drift silently.
@@ -296,8 +295,8 @@ function validateRules(override, policy, versioned) {
   if (!fields(override, 'override', versioned ? ['policyVersion', 'rules'] : ['rules'], ['machines'])) return { ok: false, errors };
   if (versioned) check(override.policyVersion === policy.policyVersion, `unsupported policyVersion: ${override.policyVersion}`);
   const machines = has(override, 'machines')
-    ? list(override.machines, 'override.machines', Object.keys(policy.machines), 1)
-    : Object.keys(policy.machines);
+    ? list(override.machines, 'override.machines', machineIds(policy), 1)
+    : machineIds(policy);
   check(Array.isArray(override.rules), 'override.rules must be an array');
   const seen = new Set();
   for (const [i, rule] of (Array.isArray(override.rules) ? override.rules : []).entries()) {
@@ -444,7 +443,7 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
   assertValid(validatePolicy(policy), 'policy');
   if (!has(policy.kinds, kind)) throw new TypeError(`Unknown kind: ${kind}`);
   if (override !== null) assertValid(validateOverride(override, policy), 'override');
-  if (machine !== undefined && !has(policy.machines, machine)) throw new TypeError(`Unknown machine: ${machine}`);
+  if (machine !== undefined && !machineIds(policy).includes(machine)) throw new TypeError(`Unknown machine: ${machine}`);
   if (!Number.isInteger(failures) || failures < 0) throw new TypeError('failures must be a nonnegative integer');
   if (repo !== null) {
     repo = normalizeRepo(repo);
@@ -495,7 +494,7 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
         escalated: thresholdReached, fallback: false, reason: `${origin} ${rule.source}: ${rule.why}` });
     }
   }
-  const allowed = override?.machines ?? repoRules?.machines ?? Object.keys(policy.machines);
+  const allowed = override?.machines ?? repoRules?.machines ?? machineIds(policy);
   const note = [...new Set(notes)].join(' ');
   const seen = new Map();
   const candidates = [];

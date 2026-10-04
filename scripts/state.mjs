@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, statSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -13,19 +13,27 @@ function readOptional(file, fallback) {
 }
 export function readState(dir) {
   const alternation = {};
+  let unreadableLogLines = 0;
   // ⚠ The log is the alternation record: a crash cannot advance a trial without logging it.
   for (const line of readOptional(join(dir, 'decisions.jsonl'), '').split('\n').filter(Boolean)) {
-    const decision = JSON.parse(line);
+    let decision;
+    try { decision = JSON.parse(line); }
+    catch { unreadableLogLines++; continue; }
+    if (!decision || typeof decision !== 'object' || Array.isArray(decision)) { unreadableLogLines++; continue; }
     if (decision.status === 'ok' && decision.basis === 'trial') alternation[decision.kind] = decision.route;
   }
-  return { alternation, limits: JSON.parse(readOptional(join(dir, 'limits.json'), '{}')) };
+  return { alternation, unreadableLogLines, limits: JSON.parse(readOptional(join(dir, 'limits.json'), '{}')) };
 }
 export function logDecision(dir, decision, brief) {
   const record = { ...decision, ...(brief === undefined ? {} : { brief: {
     sha256: createHash('sha256').update(brief).digest('hex'), length: brief.length,
   } }) };
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  appendFileSync(join(dir, 'decisions.jsonl'), JSON.stringify(record) + '\n', { mode: 0o600 });
+  // ⚠ Dispatch arguments contain task text and private identifiers. Keep them only in stdout.
+  const logged = { ...record, ...(record.spawn ? { spawn: { missing: record.spawn.missing } } : {}) };
+  const previous = readOptional(join(dir, 'decisions.jsonl'), '');
+  const separator = previous && !previous.endsWith('\n') ? '\n' : '';
+  appendFileSync(join(dir, 'decisions.jsonl'), separator + JSON.stringify(logged) + '\n', { mode: 0o600 });
   return record;
 }
 export function setLimit(dir, route, hours, now) {
@@ -37,18 +45,46 @@ export function setLimit(dir, route, hours, now) {
   renameSync(temporary, join(dir, 'limits.json'));
   return { route, until };
 }
+function lockOwner(lock) {
+  try { return JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')); }
+  catch { return null; }
+}
+function reclaimable(lock) {
+  const owner = lockOwner(lock);
+  let created;
+  try { created = statSync(lock).mtimeMs; }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  const at = Date.parse(owner?.at);
+  if (Date.now() - (Number.isFinite(at) ? at : created) > 30_000) return true;
+  if (Number.isInteger(owner?.pid) && owner.pid > 0) {
+    try { process.kill(owner.pid, 0); }
+    catch (error) { if (error.code === 'ESRCH') return true; }
+  }
+  return false;
+}
 export async function withStateLock(dir, operation) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const lock = join(dir, '.lock');
   const deadline = Date.now() + 5_000;
+  const token = randomUUID();
   for (;;) {
-    try { mkdirSync(lock); break; }
-    catch (error) {
+    try {
+      mkdirSync(lock);
+      writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, at: new Date().toISOString(), token }), { mode: 0o600 });
+      break;
+    } catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      if (Date.now() >= deadline) throw new Error(`State is locked at ${lock}; check for an active pick or limit process before removing the lock`);
+      if (reclaimable(lock)) {
+        rmSync(lock, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error(`State is locked at ${lock}; another process is writing`);
       await delay(20);
     }
   }
   try { return await operation(); }
-  finally { rmSync(lock, { recursive: true }); }
+  finally {
+    // ⚠ A reclaimed lease may belong to another writer; the old owner must not release it.
+    if (lockOwner(lock)?.token === token) rmSync(lock, { recursive: true, force: true });
+  }
 }

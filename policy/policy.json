@@ -491,14 +491,7 @@
         "fallback": "luna",
         "cooldownHours": 5
       }
-    ],
-    "allLimited": {
-      "route": "pi-local",
-      "kinds": [
-        "bulk-text"
-      ],
-      "otherwise": "stop-and-report"
-    }
+    ]
   },
   "tieBreak": {
     "tier": 2,
@@ -534,14 +527,14 @@
     "requireTrust": "CALIBRATED",
     "maxAgeDays": 30,
     "byKind": {
-      "quick-edit": "tasks/runs/quick-edit.card.json",
-      "simple-bug-fix": "tasks/runs/bug-fix.card.json",
-      "hard-bug-fix": "tasks/runs/bug-fix.card.json",
-      "bounded-build": "tasks/runs/implementation.card.json",
-      "multi-step-coding": "tasks/runs/implementation.card.json",
-      "first-pass-review": "tasks/runs/review.card.json",
-      "routine-review": "tasks/runs/review.card.json",
-      "high-risk-review": "tasks/runs/review.card.json"
+      "quick-edit": "quick-edit.card.json",
+      "simple-bug-fix": "bug-fix.card.json",
+      "hard-bug-fix": "bug-fix.card.json",
+      "bounded-build": "implementation.card.json",
+      "multi-step-coding": "implementation.card.json",
+      "first-pass-review": "review.card.json",
+      "routine-review": "review.card.json",
+      "high-risk-review": "review.card.json"
     }
   },
   "machines": {
@@ -550,7 +543,8 @@
     },
     "pc": {
       "description": "PC; no Muse or pi-local route."
-    }
+    },
+    "default": "mac-studio"
   },
   "repos": {
     "srbryers/wedding": {

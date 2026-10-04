@@ -66,3 +66,17 @@ it('installed executable symlink still invokes the CLI', t => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), pkg.version);
 });
+
+it('card --out writes the generated card to a user data directory', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'model-routing-out-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const task = join(dir, 'example-task.mjs');
+  copyFileSync(join(root, 'example-task.mjs'), task);
+  const seed = run(join(root, 'seed-from-today.mjs'), [], { cwd: dir });
+  assert.equal(seed.status, 0, seed.stderr);
+  const out = join(dir, 'data', 'model-routing', 'cards');
+  const result = run(bin, ['card', task, '--out', out]);
+  assert.equal(result.status, 0, result.stderr);
+  const card = JSON.parse(readFileSync(join(out, 'block-composition.card.json'), 'utf8'));
+  assert.equal(card.task, 'block-composition');
+});
