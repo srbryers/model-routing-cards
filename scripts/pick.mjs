@@ -28,7 +28,7 @@ export function quotaPace(snapshot, now) {
 
 /** Pure decision: no clocks, files, commands, credentials or state mutation. */
 export function pick(input, deps) {
-  const { policy, override = null, repo = null, classifier, alternation = {}, limits = {}, cards = {} } = deps;
+  const { policy, override = null, repo = null, classifier, alternation = {}, limits = {}, cards = {}, localConfig = null, localConfigError = null } = deps;
   const now = new Date(deps.now).getTime();
   if (!Number.isFinite(now)) throw new TypeError('now must be a valid date');
   const quota = quotaPace(deps.quota, now);
@@ -43,7 +43,7 @@ export function pick(input, deps) {
     if (!notes.includes('quota unknown: hard stops not applied')) notes.unshift('quota unknown: hard stops not applied');
   };
   if (Object.entries(policy.pools).some(([pool, p]) => p.readable && missingQuota(pool))) warnQuota();
-  const result = { id: deps.id, at: new Date(now).toISOString(), status: 'ok', repo, why, alternatives, quota, notes };
+  const result = { id: deps.id, at: new Date(now).toISOString(), status: 'ok', repo, why, alternatives, quota, notes, beforeSpawn: [], spendApproved: input.spendApproved === true };
   if (!input.kind && classifier) result.classifier = { confidence: classifier.confidence, top: classifier.top, costUsd: classifier.costUsd };
   const kind = input.kind ?? (classifier?.status === 'ok' ? classifier.kind : undefined);
   if (!kind) {
@@ -58,14 +58,19 @@ export function pick(input, deps) {
   const machines = override?.machines ?? policy.repos[repo]?.machines ?? machineIds(policy);
   const machine = input.machine ?? (machines.length === 1 ? machines[0] : machines.includes(policy.machines.default) ? policy.machines.default : machines[0]);
   result.machine = machine;
-  const options = { repo, override, machine, failures: input.failures ?? 0 };
+  const options = { repo, override, machine, failures: input.failures ?? 0, localConfig, localConfigError };
   const resolved = resolveCandidates(policy, kind, options);
   let candidates = resolved.candidates;
   alternatives.push(...resolved.blocked.map(({ route, why }) => ({ route, rejected: why })));
   // Notes survive even when all candidates have been removed by the resolver.
   for (const rules of [policy.repos[repo], override]) {
     for (const rule of rules?.rules ?? []) {
-      if (rule.note && (rule.kinds.includes(kind) || rule.kinds.includes('*')) && !notes.includes(rule.note)) notes.push(rule.note);
+      if (!rule.kinds.includes(kind) && !rule.kinds.includes('*')) continue;
+      if (rule.note && !notes.includes(rule.note)) notes.push(rule.note);
+      if (policy.routes[rule.route]?.disabled) {
+        const note = `repo rule names ${rule.route}, which is disabled: ${policy.routes[rule.route].disabled}`;
+        if (!notes.includes(note)) notes.push(note);
+      }
     }
   }
   const reject = (candidate, reason) => {
@@ -81,31 +86,49 @@ export function pick(input, deps) {
     const expanded = resolveCandidates(policy, kind, { ...options, reviewFallbacks: true });
     candidates = expanded.candidates;
   }
+  const subscriptionCandidates = candidates.slice();
+  const limited = new Set();
+  const limitReject = (candidate, reason) => {
+    limited.add(candidate.route);
+    return reject(candidate, reason);
+  };
   candidates = candidates.filter(c => vendorAllowed(c) || reject(c, `review must use a different vendor than ${authorVendor}`));
   candidates = candidates.filter(c => !((c.source === 'repo' || c.source === 'file') && c.escalated
     && options.failures >= policy.escalation.escalateAfterFailures)
     || reject(c, 'escalated repo route skipped after repeated failures'));
   candidates = candidates.filter(c => !(Date.parse(limits[c.route]) > now)
-    || reject(c, `limit cooldown until ${limits[c.route]}`));
+    || limitReject(c, `limit cooldown until ${limits[c.route]}`));
   const quotaCandidates = candidates[0]?.type === 'external' ? [] : candidates;
-  const unknownPools = [...new Set(quotaCandidates.filter(c => c.type !== 'external'
-    && !policy.pools[c.pool].free && missingQuota(c.pool)).map(c => c.pool))];
-  if (unknownPools.length) warnQuota();
-  if (input.requireQuota && unknownPools.length) {
-    result.status = 'blocked';
-    why.push(`quota unknown: hard stops not applied; required quota missing for ${unknownPools.join(', ')}`);
-    return result;
+  for (const pool of new Set(quotaCandidates.filter(c => c.type !== 'external').map(c => c.pool))) {
+    if (!policy.pools[pool].readable) why.push(`${pool} quota unreadable by design; relying on cooldowns`);
   }
   candidates = candidates.filter(c => {
     for (const rule of policy.quota.thresholds) {
       const used = quota[rule.pool]?.[rule.window]?.used;
       if (rule.action !== 'reserve-pool' || !(used > rule.usedPercentAbove) || c.pool !== rule.pool) continue;
       if (!rule.allowedTiers.includes(c.tier) && !(rule.allowMainThreads && input.mainThread)) {
-        return reject(c, `${c.source === 'repo' || c.source === 'file' ? 'repo override blocked: ' : ''}${rule.pool} ${rule.window} ${used}% > ${rule.usedPercentAbove}%; reserved pool`);
+        return limitReject(c, `${c.source === 'repo' || c.source === 'file' ? 'repo override blocked: ' : ''}${rule.pool} ${rule.window} ${used}% > ${rule.usedPercentAbove}%; reserved pool`);
       }
     }
     return true;
   });
+  let meteredFallback = false;
+  // ⚠ Spending is only a response to exhausted subscriptions, never a way around
+  // exclusions, machine restrictions, missing configuration or review independence.
+  const exhausted = subscriptionCandidates.length > 0
+    && subscriptionCandidates.every(c => c.type !== 'external' && !['local', 'metered'].includes(c.pool) && limited.has(c.route))
+    && resolved.blocked.every(b => /candidate superseded by/.test(b.why));
+  if (!candidates.length && exhausted) {
+    const expanded = resolveCandidates(policy, kind, { ...options, meteredFallbacks: true });
+    const fallbackIds = policy.quota.meteredFallback[subscriptionCandidates[0].tier] ?? [];
+    alternatives.push(...expanded.blocked.filter(b => fallbackIds.includes(b.route)).map(({ route, why }) => ({ route, rejected: why })));
+    candidates = expanded.candidates.filter(c => fallbackIds.includes(c.route) && c.pool === 'metered')
+      .filter(c => vendorAllowed(c) || reject(c, `review must use a different vendor than ${authorVendor}`))
+      .filter(c => !(Date.parse(limits[c.route]) > now) || reject(c, `limit cooldown until ${limits[c.route]}`));
+    meteredFallback = candidates.length > 0;
+    why.push(meteredFallback ? 'all subscription candidates removed by quota stops or cooldowns; metered fallback order is unmeasured; no card backs it'
+      : `no allowed metered fallback for tier ${subscriptionCandidates[0].tier}`);
+  }
   if (!candidates.length) {
     result.status = 'blocked';
     why.push(`no allowed route for ${kind} on ${machine}`);
@@ -113,6 +136,7 @@ export function pick(input, deps) {
   }
   // ⚠ Apply a lone threshold to eligibility before repo priority or card evidence.
   // The fallback may relax this preference, but never resurrect a reserved route.
+  const preferencePools = new Set();
   for (const tier of new Set(candidates.map(c => c.tier))) {
     const preferences = policy.quota.thresholds.filter(rule => rule.action === 'prefer-route'
       && rule.tiers.includes(tier) && quota[rule.pool]?.[rule.window]?.used > rule.usedPercentAbove);
@@ -129,18 +153,21 @@ export function pick(input, deps) {
       notes.push(`quota preference for ${rule.route} unavailable; no allowed ${targetPool} candidate, falling back to ${rule.pool}`);
       continue;
     }
+    preferencePools.add(rule.pool); preferencePools.add(targetPool);
     const poolLabel = { claude: 'Claude', codex: 'Codex' }[rule.pool] ?? rule.pool;
     const windowLabel = rule.window === 'five-hour' ? '5h' : rule.window;
-    const reason = `${poolLabel} ${windowLabel} ${quota[rule.pool][rule.window].used}% > ${rule.usedPercentAbove}`;
+    const reason = `${poolLabel} ${windowLabel} ${quota[rule.pool][rule.window].used}% > ${rule.usedPercentAbove}%`;
     candidates = candidates.filter(c => !losing(c) || reject(c,
       `${c.source === 'repo' || c.source === 'file' ? `repo rule on ${c.route}` : c.route} blocked by quota: ${reason}`));
   }
   let selected = candidates[0];
   let basis = 'policy';
   let tied = false;
+  let paceUsed = false;
   const pair = policy.tieBreak.routes.map(id => candidates.find(c => c.route === id));
   const repoFirst = selected.source === 'repo' || selected.source === 'file';
   if (!repoFirst && selected.tier === policy.tieBreak.tier && pair.every(Boolean)) {
+    paceUsed = true;
     const heads = pair.map(c => quota[c.pool]?.[policy.tieBreak.window]?.headroom);
     if (heads.every(Number.isFinite)) {
       why.push(`${pair[0].route} weekly headroom ${heads[0].toFixed(2)} points; ${pair[1].route} weekly headroom ${heads[1].toFixed(2)} points`);
@@ -160,6 +187,7 @@ export function pick(input, deps) {
   const card = cards[kind];
   if (!file) why.push(`no card mapped for ${kind}`);
   else if (!card) why.push(`no card file present: ${file}`);
+  else if (meteredFallback) why.push('card ignored: metered fallback order is unmeasured; no card backs it');
   else if (repoFirst) why.push('repo rule outranks card');
   else if (card.task !== file.slice(0, -'.card.json'.length)) why.push(`card task mismatch: expected ${file.slice(0, -'.card.json'.length)}, ignored`);
   else if (selected.type === 'external') why.push('external instruction takes precedence over worker cards');
@@ -180,6 +208,16 @@ export function pick(input, deps) {
       } else why.push(`${label}, costs unknown, incomparable or not cheaper, ignored`);
     } else why.push(`${label}, ${card.trust === 'CALIBRATED' ? 'winner not allowed' : card.trust === 'NO_CLEAR_WINNER' ? 'no eligible pace tie' : 'insufficient evidence'}, ignored`);
   }
+  // ⚠ Unused fallback pools cannot block a choice they did not influence.
+  const relevantPools = new Set(preferencePools.has(selected.pool) ? preferencePools : []);
+  if (selected.type !== 'external') relevantPools.add(selected.pool);
+  if (paceUsed && basis !== 'card') for (const c of pair) relevantPools.add(c.pool);
+  const unknownPools = [...relevantPools].filter(pool => policy.pools[pool].readable && missingQuota(pool));
+  if (input.requireQuota && unknownPools.length && selected.type !== 'external') {
+    result.status = 'blocked';
+    why.push(`quota unknown: hard stops not applied; required quota missing for ${unknownPools.join(', ')}`);
+    return result;
+  }
   why.unshift(`tier ${selected.tier} for ${kind}`);
   why.push(selected.reason);
   if (quota === 'unknown') why.push('quota unknown');
@@ -191,7 +229,19 @@ export function pick(input, deps) {
     Object.assign(result, { status: 'external', instruction: selected.instruction, requiresSpendApproval: selected.requiresSpendApproval });
   } else {
     Object.assign(result, { provider: selected.provider, model: selected.model, reasoning: selected.reasoning });
-    if (policy.routes[selected.route].runningByDefault === false) notes.push('Local worker is not running by default; start it and check availability before dispatch.');
+    const route = policy.routes[selected.route];
+    if (kind === 'bulk-text' && selected.route !== 'pi-local' && selected.pool !== 'local') {
+      notes.push(`pi-local unavailable; falling back to ${selected.route} (cloud). Do not send private text.`);
+    }
+    if (route.note && !notes.includes(route.note)) notes.push(route.note);
+    if (route.requiresSpendApproval) {
+      Object.assign(result, { requiresSpendApproval: true, costPer1M: route.costPer1M,
+        status: result.spendApproved ? 'ok' : 'needs_approval',
+        ...(!result.spendApproved ? { spawn: null } : {}) });
+    }
+    if (route.runningByDefault === false && route.livenessCheck) {
+      result.beforeSpawn.push(`Check the local server is running: \`${route.livenessCheck}\``);
+    }
   }
   return result;
 }
