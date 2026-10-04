@@ -133,3 +133,29 @@ test('policy validates classifier, margin, card path and unique model aliases', 
     const p = structuredClone(policy); mutate(p); assert.equal(validatePolicy(p).ok, false);
   }
 });
+
+test('tier 3 escalated repo routes are skipped without inventing a fourth tier', () => {
+  const d = choose({ kind: 'data-contract', failures: 2 }, { repo: 'srbryers/wedding' });
+  assert.equal(d.route, 'opus'); assert.match(d.why.join(' '), /escalated repo route skipped/);
+});
+test('central plus file exclusions can block a kind and retain all explanations', () => {
+  const file = { policyVersion: 1, rules: [{ kinds: ['*'], excludeRoutes: ['luna'], source: 'fixture', why: 'test constraint' }] };
+  const d = choose({ kind: 'quick-edit' }, { repo: 'srbryers/ui-kit', override: file });
+  assert.equal(d.status, 'blocked');
+  assert.ok(d.alternatives.some(a => a.route === 'muse' && /excluded/.test(a.rejected)));
+  assert.ok(d.alternatives.some(a => a.route === 'luna' && /excluded/.test(a.rejected)));
+  assert.match(d.notes.join(' '), /kit-curator/);
+});
+test('expired quota is unknown and does not impose an old hard stop', () => {
+  const d = choose({}, { now: '2026-10-11T00:00:00Z', quota: changed(99, 99) });
+  assert.equal(d.status, 'ok'); assert.equal(d.quota, 'unknown'); assert.equal(d.basis, 'trial');
+});
+test('card cannot bypass an external instruction; malformed costs and future cards are ignored', () => {
+  const p = structuredClone(policy); p.cards.byKind['user-facing-copy'] = 'tasks/runs/quick-edit.card.json';
+  const d = choose({ kind: 'user-facing-copy' }, { policy: p, repo: 'srbryers/prelude-social-skills-coach',
+    cards: { 'user-facing-copy': card('CALIBRATED', 'meta/muse-spark-1.3') } });
+  assert.equal(d.status, 'external');
+  const c = card('NO_CLEAR_WINNER'); c.models = {};
+  assert.equal(choose({}, { cards: { 'multi-step-coding': c } }).basis, 'trial');
+  assert.equal(choose({}, { cards: { 'multi-step-coding': card('CALIBRATED', undefined, '2027-01-01') } }).basis, 'trial');
+});

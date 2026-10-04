@@ -115,6 +115,7 @@ export function pick(input, deps) {
   const card = cards[kind];
   if (!file) why.push(`no card mapped for ${kind}`);
   else if (!card) why.push(`no card file present: ${file}`);
+  else if (selected.type === 'external') why.push('external instruction takes precedence over worker cards');
   else {
     const label = `card ${card.task ?? kind} ${card.trust ?? 'invalid'}`;
     const age = (now - Date.parse(card.generated)) / 86_400_000;
@@ -123,7 +124,7 @@ export function pick(input, deps) {
     else if (card.trust === 'CALIBRATED' && winner) {
       selected = winner; basis = 'card'; why.push(`${label}, fresh winner maps to allowed route ${winner.route}`);
     } else if (card.trust === 'NO_CLEAR_WINNER' && tied && winner && pair.includes(winner)) {
-      const rows = pair.map(c => card.models?.find(row => policy.routes[c.route].cardModels?.includes(row.model)));
+      const rows = pair.map(c => (Array.isArray(card.models) ? card.models : []).find(row => policy.routes[c.route].cardModels?.includes(row.model)));
       const costs = rows.map(row => row?.cost_per_accepted_usd);
       const winIndex = pair.indexOf(winner);
       if (costs.every(c => typeof c === 'number' && Number.isFinite(c) && c >= 0)

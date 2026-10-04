@@ -3,7 +3,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,4 +54,15 @@ describe('model-routing CLI', () => {
     assert.equal(viaRoute.status, 0, viaRoute.stderr);
     assert.equal(viaBin.stdout, viaRoute.stdout);
   });
+});
+
+// ⚠ npm installs an executable symlink; the import guard must resolve it.
+it('installed executable symlink still invokes the CLI', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'model-routing-link-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const link = join(dir, 'model-routing');
+  symlinkSync(bin, link);
+  const result = run(link, ['--version']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), pkg.version);
 });

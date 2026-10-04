@@ -8,7 +8,7 @@
  * Commands remain entries in COMMANDS.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
@@ -42,8 +42,7 @@ run and card behave exactly like \`node scripts/route.mjs run|card ...\`.
 Receipts and cards are written beside the task file, never inside the install.
 `;
 
-/* ⚠ One entry per command: a later PR adds `pick` / `record` here and nowhere
-   else. Each entry receives the args after the command name. */
+/* ⚠ Keep command dispatch in one table so installed and direct use agree. */
 export const COMMANDS = {
   pick: runPick,
   limit: runLimit,
@@ -151,4 +150,4 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     return 2;
   }
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
