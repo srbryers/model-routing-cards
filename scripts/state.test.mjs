@@ -53,3 +53,22 @@ test('lock release tolerates prior removal', async t => {
   const dir = temp(t);
   await withStateLock(dir, () => rmSync(join(dir, '.lock'), { recursive: true, force: true }));
 });
+
+test('stale reclamation rechecks an owner replaced during the PID check', async t => {
+  const dir = temp(t);
+  const oldPid = 99999999;
+  lock(dir, oldPid, new Date().toISOString());
+  const kill = process.kill;
+  t.mock.method(process, 'kill', (pid, signal) => {
+    if (pid !== oldPid) return kill(pid, signal);
+    writeFileSync(join(dir, '.lock', 'owner.json'), JSON.stringify({ pid: process.pid, at: new Date().toISOString(), token: 'new-owner' }));
+    throw Object.assign(new Error('old owner exited'), { code: 'ESRCH' });
+  });
+  let acquired = false;
+  const operation = withStateLock(dir, () => { acquired = true; });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(acquired, false);
+  rmSync(join(dir, '.lock'), { recursive: true, force: true });
+  await operation;
+  assert.equal(acquired, true);
+});

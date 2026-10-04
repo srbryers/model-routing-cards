@@ -65,8 +65,7 @@ function lockOwner(lock) {
   try { return JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')); }
   catch { return null; }
 }
-function reclaimable(lock) {
-  const owner = lockOwner(lock);
+function reclaimable(lock, owner) {
   let created;
   try { created = statSync(lock).mtimeMs; }
   catch (error) { if (error.code === 'ENOENT') return false; throw error; }
@@ -90,7 +89,9 @@ export async function withStateLock(dir, operation) {
       break;
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      if (reclaimable(lock)) {
+      const owner = lockOwner(lock);
+      // ⚠ A contender may have replaced the stale owner while we checked its PID.
+      if (reclaimable(lock, owner) && JSON.stringify(lockOwner(lock)) === JSON.stringify(owner)) {
         rmSync(lock, { recursive: true, force: true });
         continue;
       }

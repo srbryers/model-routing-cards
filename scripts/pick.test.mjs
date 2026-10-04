@@ -214,3 +214,41 @@ test('default machine comes from validated policy and respects repo machines', (
   assert.equal(choose({ kind: 'quick-edit' }, { policy: p, override: { policyVersion: 1, rules: [], machines: ['mac-studio'] } }).machine, 'mac-studio');
   for (const value of ['default', 'unknown', null]) { p.machines.default = value; assert.equal(validatePolicy(p).ok, false); }
 });
+
+test('a lone Claude threshold excludes a calibrated Sonnet card', () => {
+  const d = choose({}, { quota: changed(75), cards: { 'multi-step-coding': card() } });
+  assert.equal(d.route, 'astra'); assert.equal(d.basis, 'policy');
+  assert.match(d.why.join(' '), /card implementation CALIBRATED, winner not allowed, ignored/);
+});
+test('a lone Claude threshold blocks a tier-2 repo or file rule before selection', () => {
+  for (const source of ['repo', 'file']) {
+    const p = structuredClone(policy);
+    const rules = override('sonnet');
+    p.repos['test/project'] = { rules: rules.rules };
+    const d = choose({}, { policy: p, quota: changed(75),
+      ...(source === 'repo' ? { repo: 'test/project' } : { override: rules }) });
+    assert.equal(d.route, 'astra');
+    assert.ok(d.alternatives.some(a => a.route === 'sonnet'
+      && a.rejected === 'repo rule on sonnet blocked by quota: Claude 5h 75% > 70'));
+  }
+});
+test('a lone Codex threshold blocks the Flora Astra rule and chooses Sonnet', () => {
+  const d = choose({ kind: '3d-work' }, { repo: 'srbryers/flora-studio', quota: changed(59, 90) });
+  assert.equal(d.route, 'sonnet'); assert.equal(d.basis, 'policy');
+  assert.ok(d.alternatives.some(a => a.route === 'astra'
+    && a.rejected === 'repo rule on astra blocked by quota: Codex weekly 90% > 85'));
+});
+test('a lone preference falls back when its target pool is limited or excluded', () => {
+  const excluded = { policyVersion: 1, rules: [{ kinds: ['multi-step-coding'], excludeRoutes: ['astra'], source: 'fixture', why: 'unavailable' }] };
+  for (const constraint of [{ limits: { astra: '2026-10-05' } }, { override: excluded }]) {
+    const d = choose({}, { quota: changed(75), ...constraint });
+    assert.equal(d.route, 'sonnet'); assert.equal(d.basis, 'policy');
+    assert.ok(d.notes.some(n => /no allowed codex candidate, falling back to claude/.test(n)));
+  }
+  const reverse = choose({}, { quota: changed(59, 90), limits: { sonnet: '2026-10-05' } });
+  assert.equal(reverse.route, 'astra'); assert.match(reverse.notes.join(' '), /falling back to codex/);
+});
+test('preference fallback cannot undo the 80 percent reservation or an exhausted candidate list', () => {
+  assert.equal(choose({}, { quota: changed(81), limits: { astra: '2026-10-05' } }).status, 'blocked');
+  assert.equal(choose({}, { quota: changed(75), limits: { astra: '2026-10-05', sonnet: '2026-10-05' } }).status, 'blocked');
+});
