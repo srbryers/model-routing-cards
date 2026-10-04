@@ -60,7 +60,7 @@ export function validatePolicy(policy) {
   const errors = [];
   const { check, fields, list, reasoning } = checks(errors);
   if (!fields(policy, 'policy', ['policyVersion', 'updated', 'routes', 'pools', 'tiers',
-    'kinds', 'escalation', 'quota', 'tieBreak', 'review', 'cards', 'machines', 'repos'])) return { ok: false, errors };
+    'kinds', 'escalation', 'quota', 'tieBreak', 'review', 'cards', 'machines', 'repos', 'classifier'])) return { ok: false, errors };
   check(policy.policyVersion === 1, `unsupported policyVersion: ${policy.policyVersion}`);
   check(typeof policy.updated === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(policy.updated)
     && !Number.isNaN(Date.parse(policy.updated))
@@ -124,7 +124,7 @@ export function validatePolicy(policy) {
       continue;
     }
     if (!fields(route, path, ['provider', 'model', 'machines', 'pool', 'vendor'],
-      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck'])) continue;
+      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels'])) continue;
     check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
     check(nonempty(route.model), `${path}.model is required`);
@@ -138,6 +138,15 @@ export function validatePolicy(policy) {
     if (sonnet(id, route)) check(route.maxReasoning === 'xhigh', `${path}: Sonnet maxReasoning must be xhigh`);
     if (has(route, 'runningByDefault')) check(typeof route.runningByDefault === 'boolean', `${path}.runningByDefault must be boolean`);
     if (route.runningByDefault === false || has(route, 'livenessCheck')) check(nonempty(route.livenessCheck), `${path}.livenessCheck is required`);
+  }
+  const aliases = new Set();
+  for (const [id, route] of Object.entries(routes)) {
+    if (!has(route, 'cardModels')) continue;
+    check(Array.isArray(route.cardModels), `routes.${id}.cardModels must be an array`);
+    for (const alias of Array.isArray(route.cardModels) ? route.cardModels : []) {
+      check(nonempty(alias) && !aliases.has(alias), `routes.${id}.cardModels must contain unique nonempty aliases`);
+      aliases.add(alias);
+    }
   }
   const selection = (entry, path, nullable = false) => {
     const candidates = routeList(entry.candidates, `${path}.candidates`, 1);
@@ -233,7 +242,9 @@ export function validatePolicy(policy) {
     }
   }
   const tie = policy.tieBreak;
-  if (fields(tie, 'tieBreak', ['tier', 'order', 'pcCandidates', 'tieBreak', 'window', 'onTie', 'routes', 'label'])) {
+  if (fields(tie, 'tieBreak', ['tier', 'order', 'pcCandidates', 'tieBreak', 'window', 'onTie', 'routes', 'label', 'marginPoints']))
+ {
+    check(Number.isFinite(tie.marginPoints) && tie.marginPoints >= 0 && tie.marginPoints <= 100, 'tieBreak.marginPoints must be between 0 and 100');
     check(tie.tier === 2, 'tieBreak.tier must be 2');
     check(JSON.stringify(tie.order) === JSON.stringify(['repo-override', 'machine', 'weekly-headroom', 'alternate']), 'tieBreak.order must be repo-override, machine, weekly-headroom, alternate');
     routeList(tie.pcCandidates, 'tieBreak.pcCandidates', 1);
@@ -247,10 +258,20 @@ export function validatePolicy(policy) {
     check(policy.review.differentVendor === true, 'review.differentVendor must be true');
     list(policy.review.kinds, 'review.kinds', KIND_IDS, 1);
   }
-  if (fields(policy.cards, 'cards', ['requireTrust', 'maxAgeDays'])) {
+  if (fields(policy.cards, 'cards', ['requireTrust', 'maxAgeDays', 'byKind'])) {
+    check(object(policy.cards.byKind), 'cards.byKind must be an object');
+    for (const [kind, file] of Object.entries(object(policy.cards.byKind) ? policy.cards.byKind : {})) {
+      check(has(kinds, kind), `cards.byKind: unknown kind ${kind}`);
+      check(typeof file === 'string' && /^tasks\/runs\/[a-z0-9-]+\.card\.json$/.test(file), `cards.byKind.${kind} must name a tasks/runs/<task-id>.card.json file`);
+    }
     check(policy.cards.requireTrust === 'CALIBRATED', 'cards.requireTrust must be CALIBRATED');
     // ⚠ JSON needs a literal; validate against the trust gate so it cannot drift silently.
     check(policy.cards.maxAgeDays === TRUST.STALE_DAYS, `cards.maxAgeDays must match TRUST.STALE_DAYS (${TRUST.STALE_DAYS})`);
+  }
+  if (fields(policy.classifier, 'classifier', ['minProbability', 'minMargin'])) {
+    for (const [key, value] of Object.entries(policy.classifier)) {
+      check(Number.isFinite(value) && value >= 0 && value <= 1, `classifier.${key} must be between 0 and 1`);
+    }
   }
   check(object(policy.repos), 'repos must be an object keyed by owner/name');
   // ⚠ Reuse rule validation only after its route/kind dependencies are valid.
@@ -419,7 +440,7 @@ export function kindsForClassifier(policy) {
 }
 
 /** Expand policy order only. PR 3 applies quota, liveness, vendor checks and card trust. */
-export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0 } = {}) {
+export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0, reviewFallbacks = false } = {}) {
   assertValid(validatePolicy(policy), 'policy');
   if (!has(policy.kinds, kind)) throw new TypeError(`Unknown kind: ${kind}`);
   if (override !== null) assertValid(validateOverride(override, policy), 'override');
@@ -442,6 +463,17 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
     ...selection.fallbacks.map(route => ({ route, reasoning: selection.fallbackReasoning ?? level,
       reason: `${reason}; fallback`, fallback: true })),
   ].map(candidate => ({ ...candidate, source: step ? 'tier' : 'kind', escalated: !!step }));
+  // ⚠ Independent review may need the nearest tier; exclusions still pass through this resolver.
+  if (reviewFallbacks) {
+    const targetTier = step?.tier ?? entry.tier;
+    const nearest = Object.entries(policy.tiers).sort(([a], [b]) =>
+      Math.abs(Number(a) - targetTier) - Math.abs(Number(b) - targetTier) || Number(b) - Number(a));
+    for (const [tier, defaults] of nearest) {
+      for (const route of [...defaults.candidates, ...defaults.fallbacks]) {
+        proposed.push({ route, reasoning: defaults.reasoning, source: 'tier', fallback: true, escalated: thresholdReached, reason: `nearest different-vendor review route, tier ${tier}` });
+      }
+    }
+  }
   const excluded = new Set(entry.excludedRoutes ?? []);
   const notes = [];
   const blocked = [];

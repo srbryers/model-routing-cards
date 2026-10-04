@@ -34,7 +34,7 @@
  * rather than silently overflowing.
  */
 
-const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 
 /**
  * Published Jev 1.13 price and request ceiling, checked 2026-09-22.
@@ -138,7 +138,7 @@ export async function judge({ state, gates = {}, metrics = {}, threshold = GATE_
     throw new Error('judge() was given no gates and no metrics');
   }
 
-  const res = await fetch(ENDPOINT, {
+  const res = await fetch(JEV_ENDPOINT, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${readJevKey()}`,

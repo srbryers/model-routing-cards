@@ -29,7 +29,7 @@ describe('model-routing CLI', () => {
     assert.equal(r.status, 0);
     assert.match(r.stdout, /run/);
     assert.match(r.stdout, /card/);
-    assert.match(r.stdout, /pick and record/);
+    assert.match(r.stdout, /pick \[flags\]/);
   });
 
   it('unknown command exits 2 with usage on stderr', () => {

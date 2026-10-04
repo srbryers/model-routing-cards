@@ -18,6 +18,7 @@
     "bin/",
     "!bin/*.test.mjs",
     "scripts/*.mjs",
+    "scripts/adapters/",
     "!scripts/*.test.mjs",
     "references/",
     "policy/",
