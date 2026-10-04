@@ -187,16 +187,21 @@ if (cmd === 'run') {
           key: keys[keyNameFor(spec.provider)] ?? null,
         });
         receipt.ms = Date.now() - t0;
-        Object.assign(receipt, res);
+        /* ⚠⚠ `text` NEVER ENTERS THE RECEIPT. It used to be copied in here and
+           deleted after scoring, so a scorer that threw skipped the delete and the
+           failure receipt kept the whole model answer. Taking it out at the copy
+           leaves nothing to clean up on any path. */
+        const { text, ...rest } = res;
+        Object.assign(receipt, rest);
         if (res.state === 'completed') {
-          receipt.output_sha256 = sha(res.text);
+          receipt.output_sha256 = sha(text);
           /* ⚠ AWAITED, so a project can score with something that has to ask.
              A scorer counting brackets stays synchronous and `await` costs it
              nothing; a scorer that reads the output — `scripts/jev.mjs` — has to
              make a call, and without this its promise was written into the
              receipt as `gates: {}` and every gate passed vacuously. */
           stage = 'score_failed';
-          const scored = await task.score(res.text, task.input);
+          const scored = await task.score(text, task.input);
           receipt.gates = scored.gates ?? {};
           receipt.metrics = scored.metrics ?? {};
           /* Kept when the scorer offers it: the probabilities behind a
@@ -207,7 +212,6 @@ if (cmd === 'run') {
           /* ⚠ The response text is NOT kept in the receipt — receipts are read
              by tooling and a full model answer in every one of them makes the
              ledger unreadable. The hash is the identity; re-run to see it. */
-          delete receipt.text;
         }
       } catch (err) {
         receipt.state = 'threw';

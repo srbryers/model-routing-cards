@@ -715,7 +715,7 @@ test('route.mjs refuses a muse contributor model even on a dry run', () => {
   assert.match(out.stderr, /contributor/);
 });
 
-test('route.mjs stores a fixed category, not the exception message, in a receipt', () => {
+test('route.mjs keeps neither the exception message nor the model answer in a failed receipt', () => {
   const dir = mkdtempSync(join(tmpdir(), 'routing-receipt-'));
   const bin = join(dir, 'bin');
   mkdirSync(bin);
@@ -725,7 +725,7 @@ test('route.mjs stores a fixed category, not the exception message, in a receipt
     `#!/bin/sh
 if [ "$1" = "auth" ]; then echo '${SUBSCRIPTION}'; exit 0; fi
 cat > /dev/null
-echo '{"is_error":false,"result":"ok","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}'
+echo '{"is_error":false,"result":"SYNTHETIC_PRIVATE_OUTPUT","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}'
 `,
   );
   chmodSync(join(bin, 'claude'), 0o755);
@@ -749,4 +749,9 @@ echo '{"is_error":false,"result":"ok","stop_reason":"end_turn","usage":{"input_t
   assert.equal(receipt.error, 'score_failed');
   assert.ok(!readFileSync(file, 'utf8').includes('example.com'));
   assert.ok(!out.stdout.includes('example.com'));
+  /* The model's answer is not in the failure receipt either. */
+  assert.ok(!readFileSync(file, 'utf8').includes('SYNTHETIC_PRIVATE_OUTPUT'));
+  assert.equal(receipt.text, undefined);
+  assert.ok(receipt.output_sha256, 'the hash is kept as the identity');
+  assert.ok(!out.stdout.includes('SYNTHETIC_PRIVATE_OUTPUT'));
 });
