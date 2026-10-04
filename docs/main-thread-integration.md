@@ -32,6 +32,19 @@ which skips the quota read. Muse and local Pi have no readable quota by
 design. They never block on `--require-quota`; their limits come from
 `model-routing limit` cooldowns.
 
+When you pass `--kind` yourself, test work follows what the task changes:
+
+| Task | Kind |
+|---|---|
+| Adds or changes tests only, no product code | `write-tests` |
+| Adds tests and fixes a bug with a known or obvious cause, with a bounded fix | `simple-bug-fix` |
+| Adds tests to find unknown bugs, then fixes them | `hard-bug-fix` |
+| Adds tests and fixes code across several modules | `multi-step-coding` |
+
+A task that also fixes product code is never `write-tests`. Tests-only work is
+`write-tests` in any codebase, including iOS. A stack trace or repro that points to
+the failing code makes a bug simple; if the cause must be found, it is hard.
+
 Act on `status` in the output:
 
 | `status` | Meaning | What to do |
@@ -39,7 +52,7 @@ Act on `status` in the output:
 | `ok` | A route was chosen | Fill in `spawn.missing`, do every step in `beforeSpawn`, apply `notes`, then run `spawn.argv` (see below) |
 | `needs_kind` | The kind is unknown | Take one from `classifier.top`, or judge it, and re-run with `--kind` |
 | `external` | Follow `instruction` instead of spawning | If `requiresSpendApproval` is true, get approval first |
-| `blocked` | No allowed route | Report back and quote `why` |
+| `blocked` | No allowed route | Report back and quote `why`. If `why` says Claude is held back only by the reserve, spending is your decision: nothing is offered |
 | `needs_approval` | The chosen route costs money per call | Show the user the route and price, then re-run with `--spend-approved <route>` once approved (see below) |
 
 ## Before dispatch
@@ -127,9 +140,20 @@ A `null` price means unknown, not free.
 
 ## Metered routes
 
-Fireworks models via Pi are used only when quota stops or cooldowns remove every
-subscription candidate, or when a repo rule names one. Tier 3 has no metered
-fallback.
+Fireworks models via Pi are offered only when every subscription candidate is
+removed by the 95% quota ceiling (any readable window at or above it) or by a
+cooldown, or when a repo rule names one. The 70% and 85% thresholds only steer
+work between subscriptions and never lead to the automatic metered fallback. The Claude 80% reserve
+never does either: if Claude is held back only by that reserve and the other
+subscriptions are exhausted, `pick` returns `blocked` and you decide.
+Exclusions, machine limits and repo rules never lead to the automatic metered
+fallback. Tier 3 has no metered fallback.
+
+A repo or file rule that names a metered route (for example Prelude's
+`gemini-flash`) is different: it is a deliberate choice of a model no
+subscription offers. `pick` returns it even while subscriptions have room, and
+it still needs spend approval (`needs_approval`). The ceiling governs only the
+automatic fallback.
 
 Gemini-specific work can use `gemini-pro`, `gemini-flash` or `gemini-flash-lite`
 through `acp-gemini`: Gemini CLI on Vertex AI, billed per token to a Google Cloud

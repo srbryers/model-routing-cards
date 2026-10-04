@@ -282,3 +282,56 @@ test('Prelude Gemini visual CLI requires approval for that route, leaving extern
   assert.equal(await runPick(['--kind', 'user-facing-copy', '--spend-approved', 'gemini-flash'], h), 0);
   assert.equal(last(h).status, 'external'); assert.equal(last(h).route, 'gemini-copy');
 });
+
+function logged(h) { return readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse); }
+
+test('escalated tier-1 pick then a normal tier-2 pick read the same log; both are logged', async t => {
+  const h = harness(t);
+  assert.equal(await runPick(['--kind', 'quick-edit', '--failures', '2', '--no-quota', '--json'], h), 0);
+  const escalated = last(h);
+  assert.equal(escalated.kind, 'quick-edit'); assert.equal(escalated.basis, 'trial');
+  assert.equal(escalated.route, 'sonnet'); assert.match(escalated.why[0], /^tier 2 for quick-edit/);
+  assert.equal(await runPick(['--kind', 'multi-step-coding', '--no-quota', '--json'], h), 0);
+  const normal = last(h);
+  // Alternation is per kind: the escalated quick-edit trial must not move multi-step-coding's turn.
+  assert.equal(normal.kind, 'multi-step-coding'); assert.equal(normal.basis, 'trial');
+  assert.equal(normal.route, 'sonnet'); assert.match(normal.why.join(' '), /last trial none/);
+  const log = logged(h);
+  assert.deepEqual(log.map(d => [d.kind, d.status, d.route, d.basis]),
+    [['quick-edit', 'ok', 'sonnet', 'trial'], ['multi-step-coding', 'ok', 'sonnet', 'trial']]);
+  assert.deepEqual(readState(h.stateDir, loadPolicy()).alternation, { 'quick-edit': 'sonnet', 'multi-step-coding': 'sonnet' });
+});
+test('escalated picks in between do not disturb a kind\'s own rotation', async t => {
+  const h = harness(t);
+  const run = async args => { assert.equal(await runPick([...args, '--no-quota', '--json'], h), 0); return last(h).route; };
+  const seen = [];
+  seen.push(await run(['--kind', 'multi-step-coding']));
+  seen.push(await run(['--kind', 'quick-edit', '--failures', '2']));
+  seen.push(await run(['--kind', 'quick-edit', '--failures', '2']));
+  seen.push(await run(['--kind', 'multi-step-coding']));
+  seen.push(await run(['--kind', 'multi-step-coding']));
+  assert.deepEqual(seen, ['sonnet', 'sonnet', 'astra', 'astra', 'sol']);
+  assert.equal(logged(h).length, 5);
+});
+
+test('the long test-plus-fix brief reaches the classifier whole, and the policy descriptions reach Jev', async t => {
+  const brief = 'Add regression tests for pick\'s quota handling across scripts/pick.test.mjs and bin tests: both soft thresholds triggering at once, the alternative pool unavailable, and an escalated tier-1 task followed by a normal tier-2 pick read back through the CLI decision log. Fix any bug the tests expose in scripts/pick.mjs or scripts/state.mjs. Run npm test and open a PR.';
+  const policy = loadPolicy(); const requests = [];
+  // ⚠ Plumbing only: Jev's answer is mocked. scripts/classify.check.mjs checks the real classification.
+  const fetchImpl = async (_, request) => {
+    const body = JSON.parse(request.body); requests.push(body);
+    const probabilities = Object.fromEntries(Object.keys(body.questions.kind.criteria).map(k => [k, k === 'hard-bug-fix' ? 0.75 : k === 'multi-step-coding' ? 0.25 : 0]));
+    return { ok: true, json: async () => ({ answers: { kind: { type: 'choice', choice: 'hard-bug-fix', probabilities, confidence: 0.8 } }, usage: { input_tokens: 900 } }) };
+  };
+  const h = harness(t, { classify: (args, deps) => classify(args, { ...deps, fetchImpl, readKey: () => 'fixture' }) });
+  assert.equal(await runPick(['--brief', brief, '--execute', '--no-quota', '--json'], h), 0);
+  assert.equal(requests.length, 1); assert.equal(requests[0].state.brief, brief);
+  const { criteria } = requests[0].questions.kind;
+  assert.equal(criteria['write-tests'], policy.kinds['write-tests'].description);
+  assert.match(criteria['write-tests'], /No product code changes/);
+  const d = last(h);
+  assert.equal(d.kind, 'hard-bug-fix'); assert.equal(d.kindSource, 'jev');
+  assert.match(d.why[0], /^tier 2 for hard-bug-fix/); assert.ok(['sonnet', 'astra', 'sol'].includes(d.route));
+  assert.deepEqual(d.classifier.top.slice(0, 2).map(v => v.kind), ['hard-bug-fix', 'multi-step-coding']);
+  assert.ok(!readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').includes('regression tests'));
+});
