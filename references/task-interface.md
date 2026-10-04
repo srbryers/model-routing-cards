@@ -20,6 +20,20 @@ export const task = {
 };
 ```
 
+## Model names
+
+A bare slug is an OpenRouter model. A prefix picks another route:
+`subconscious:`, `chatgpt:`, `codex:`, `muse:` and `claude:`.
+
+- `muse:<model>` runs `muse exec`. A `-contributor` model is refused.
+- `claude:<model>` runs `claude -p`.
+- Both are subscription calls with no tools, so cost is recorded as `null`.
+- For an effort level, use an object: `{ provider: 'muse', model, reasoning: 'low' }`.
+  `muse` takes `none` to `ultra`. `claude` takes `low` to `max`.
+- They ignore `schema`. Ask for the format in the prompt.
+- Known asymmetry: `claude -p` still loads your `~/.claude/CLAUDE.md`, because the only flag that skips it (`--bare`) forces API-key billing. `muse` drops personal rules.
+- `muse` has no flag to turn off MCP servers, so it refuses to run (`mcp_configured`) if your Muse `settings.json` configures any. It reads only that file, never `auth.json`. It cannot see enterprise policy. `MODEL_ROUTING_ALLOW_MUSE_MCP=1` skips the check, and the receipt says `mcp_check: skipped`.
+
 ## ⚠⚠ Build the real prompt
 
 `prompt` must produce what the system actually sends. Approximations diverge

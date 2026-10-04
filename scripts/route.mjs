@@ -32,7 +32,7 @@ import { pathToFileURL } from 'node:url';
    inline in this file, which made the single piece of logic that decides whether
    to believe a measurement the single piece with no test. */
 import { buildCard, TRUST } from './card.mjs';
-import { call, parseModel, keyNames, keyNameFor } from './providers.mjs';
+import { call, parseModel, keyNames, keyNameFor, isContributorModel } from './providers.mjs';
 
 const CATALOG = 'https://openrouter.ai/api/v1/models';
 
@@ -97,6 +97,14 @@ mkdirSync(runsDir, { recursive: true });
 if (cmd === 'run') {
   const N = Number(flag('runs', task.runs ?? TRUST.MIN_RUNS));
   const specs = task.models.map(parseModel);
+  /* ⚠ Stop before the dry run prints, not after the first refused receipt: a
+     contributor tier lets Meta train on the prompt, so it should never look
+     runnable. `call` refuses it as well. */
+  for (const sp of specs) {
+    if (sp.provider === 'muse' && isContributorModel(sp.model)) {
+      throw new Error(`${sp.label} is a muse contributor tier (Meta may train on prompts)`);
+    }
+  }
 
   console.log(`task      ${task.id}`);
   for (const sp of specs) console.log(`          ${sp.provider.padEnd(11)} ${sp.model}`);
@@ -164,6 +172,11 @@ if (cmd === 'run') {
         prompt_sha256: sha(prompt),
         state: 'sent',
       };
+      /* ⚠ WHICH STEP THREW, NOT WHAT IT SAID. An exception message is text this
+         code did not write and can carry a path, an account or an echo of the
+         request, and receipts are kept and shared. The receipt gets a fixed
+         category; re-run to see the message. */
+      let stage = 'call_failed';
       try {
         const res = await call(spec, {
           prompt,
@@ -174,15 +187,21 @@ if (cmd === 'run') {
           key: keys[keyNameFor(spec.provider)] ?? null,
         });
         receipt.ms = Date.now() - t0;
-        Object.assign(receipt, res);
+        /* ⚠⚠ `text` NEVER ENTERS THE RECEIPT. It used to be copied in here and
+           deleted after scoring, so a scorer that threw skipped the delete and the
+           failure receipt kept the whole model answer. Taking it out at the copy
+           leaves nothing to clean up on any path. */
+        const { text, ...rest } = res;
+        Object.assign(receipt, rest);
         if (res.state === 'completed') {
-          receipt.output_sha256 = sha(res.text);
+          receipt.output_sha256 = sha(text);
           /* ⚠ AWAITED, so a project can score with something that has to ask.
              A scorer counting brackets stays synchronous and `await` costs it
              nothing; a scorer that reads the output — `scripts/jev.mjs` — has to
              make a call, and without this its promise was written into the
              receipt as `gates: {}` and every gate passed vacuously. */
-          const scored = await task.score(res.text, task.input);
+          stage = 'score_failed';
+          const scored = await task.score(text, task.input);
           receipt.gates = scored.gates ?? {};
           receipt.metrics = scored.metrics ?? {};
           /* Kept when the scorer offers it: the probabilities behind a
@@ -193,11 +212,10 @@ if (cmd === 'run') {
           /* ⚠ The response text is NOT kept in the receipt — receipts are read
              by tooling and a full model answer in every one of them makes the
              ledger unreadable. The hash is the identity; re-run to see it. */
-          delete receipt.text;
         }
       } catch (err) {
         receipt.state = 'threw';
-        receipt.error = String(err).slice(0, 160);
+        receipt.error = stage;
         receipt.ms = receipt.ms ?? Date.now() - t0;
       }
       writeFileSync(file, JSON.stringify(receipt, null, 2) + '\n');

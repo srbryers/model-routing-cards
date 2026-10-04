@@ -1,0 +1,12 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": true,
+  "terminal_reason": "api_error",
+  "result": "API Error: Couldn't connect through your proxy (ERR_PROXY_TUNNEL) — the proxy refused the tunnel: check its credentials and that it allows this host",
+  "session_id": "00000000-0000-4000-8000-000000000002",
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0
+  }
+}
