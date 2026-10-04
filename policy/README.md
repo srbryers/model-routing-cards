@@ -240,6 +240,9 @@ result meets the matching brief, after budget approval. It supplies no factual
 gates and does not override the recorded result. Missing model or usage data is
 stored as `null`, never invented or treated as free. Text and credentials are not
 stored; notes are limited to 500 characters and must not contain secrets.
+The brief must fit within 40% of the 80,000-character text budget or the check is
+refused. The result uses the remaining budget, keeping its beginning and end with
+an omission marker in the middle. The complete brief is always sent.
 
 Both logs use the shared state reader and lock. Unreadable lines are skipped;
 the summary reports the count for each log in text and JSON. A new append starts

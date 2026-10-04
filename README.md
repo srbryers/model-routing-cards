@@ -139,7 +139,10 @@ check needs all three flags: `--brief-file F --result-file R --execute`. The bri
 must match the decision's hash. Budget approval runs before the request, with a
 **$0.01** default cap (`--jev-limit-usd`). Only the probability that the result met
 the brief, model ID and cost are stored. Jev does not supply gates or change the
-recorded result. Without `--execute`, these text files are not read.
+recorded result. Briefs over 32,000 characters are refused. The brief stays intact;
+long results keep their beginning and end, with an omission marker in the middle,
+within an 80,000-character total text budget. Without `--execute`, these text files
+are not read.
 
 Records append to `outcomes.jsonl` beside the decision log, using the same state
 directory override. Recording again corrects an outcome; the summary uses the

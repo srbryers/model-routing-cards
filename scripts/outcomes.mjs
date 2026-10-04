@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { readDecisions, appendStateLog, withStateLock } from './state.mjs';
-import { JEV_ENDPOINT, assertJevBudget, fitJevState, jevInputCostUsd } from './jev.mjs';
+import { JEV_ENDPOINT, MAX_STATE_CHARS, assertJevBudget, jevInputCostUsd } from './jev.mjs';
 import { readJevKey } from './jev-key.mjs';
 
 export const FIELD_LABEL = 'field outcomes — not a comparison';
@@ -18,9 +18,23 @@ export function validateGates(gates) {
   return gates;
 }
 
+function fitOutcomeState(brief, result) {
+  // ⚠ Judging against an incomplete brief cannot establish that the brief was met.
+  if (brief.length > Math.floor(MAX_STATE_CHARS * 0.4)) throw new TypeError('brief too large to judge');
+  const resultBudget = MAX_STATE_CHARS - brief.length;
+  if (result.length > resultBudget) {
+    const keep = resultBudget - `[… ${result.length} chars omitted …]`.length;
+    const head = Math.ceil(keep / 2);
+    const tail = Math.floor(keep / 2);
+    result = `${result.slice(0, head)}[… ${result.length - keep} chars omitted …]${result.slice(-tail)}`;
+  }
+  return { brief, result };
+}
+
 async function checkBrief(brief, result, limitUsd, {
   budget = assertJevBudget, readKey = readJevKey, fetchImpl = globalThis.fetch,
 }) {
+  const state = fitOutcomeState(brief, result);
   // ⚠ Approve the worst-case cost before reading a credential or sending text.
   budget({ limitUsd, maxRequests: 1 });
   const key = readKey();
@@ -29,7 +43,7 @@ async function checkBrief(brief, result, limitUsd, {
     const response = await fetchImpl(JEV_ENDPOINT, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'jev-latest', state: fitJevState({ brief, result }),
+      body: JSON.stringify({ model: 'jev-latest', state,
         questions: { metBrief: { type: 'noul', instructions: 'Does the result meet the brief?' } } }),
       signal: AbortSignal.timeout(30_000),
     });

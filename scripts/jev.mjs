@@ -82,7 +82,7 @@ export function assertJevBudget({ limitUsd, spentUsd = 0, maxRequests = 1, maxIn
 }
 
 /** Jev's per-request ceiling, with room for the questions. */
-const MAX_STATE_CHARS = 80_000;
+export const MAX_STATE_CHARS = 80_000;
 
 /**
  * A Noul answers a probability; a gate answers yes or no.

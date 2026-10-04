@@ -7,7 +7,7 @@ import { main, runPick } from './model-routing.mjs';
 import { logDecision } from '../scripts/state.mjs';
 import { buildCard } from '../scripts/card.mjs';
 import { loadPolicy } from '../scripts/policy.mjs';
-import { assertJevBudget, fitJevState } from '../scripts/jev.mjs';
+import { assertJevBudget } from '../scripts/jev.mjs';
 
 const brief = 'PRIVATE BRIEF: fix the parser';
 const resultText = 'PRIVATE RESULT: parser fixed';
@@ -96,7 +96,7 @@ test('one injected Noul follows budget and key, stores only probability, model a
       const body = JSON.parse(options.body);
       assert.deepEqual(body.questions, { metBrief: { type: 'noul', instructions: 'Does the result meet the brief?' } });
       assert.equal(body.model, 'jev-latest');
-      assert.deepEqual(JSON.parse(body.state), { brief, result: resultText });
+      assert.deepEqual(body.state, { brief, result: resultText });
       return response();
     },
   });
@@ -127,17 +127,42 @@ test('key configuration errors stay actionable after budget approval, before a r
   assert.equal(existsSync(join(h.stateDir, 'outcomes.jsonl')), false);
 });
 
-test('Jev state uses the existing truncation limit', async t => {
-  const longResult = resultText.repeat(6000);
+test('a 90000-character result keeps the entire brief and both ends of the result', async t => {
+  const longResult = 'HEAD' + 'x'.repeat(89_992) + 'TAIL';
   const h = harness(t, { readKey: () => 'test', fetchImpl: async (_, options) => {
     const state = JSON.parse(options.body).state;
-    assert.equal(state, fitJevState({ brief, result: longResult }));
-    assert.ok(state.length <= 80_000); assert.match(state, /chars omitted/);
+    assert.equal(state.brief, brief);
+    assert.ok(state.brief.length + state.result.length <= 80_000);
+    assert.ok(state.result.length > 48_000); // The short brief leaves its unused share available.
+    assert.match(state.result, /^HEADx+\[… \d+ chars omitted …\]x+TAIL$/);
+    const omitted = Number(state.result.match(/\[… (\d+) chars omitted …\]/)[1]);
+    assert.equal(state.result.replace(/\[… \d+ chars omitted …\]/, '').length + omitted, longResult.length);
     return response();
   } });
   decision(h);
   assert.equal(await main([...record, ...files(h, brief, longResult), '--execute'], h), 0);
-  assert.ok(!log(h).includes(resultText));
+  assert.ok(!log(h).includes('HEAD'));
+});
+
+test('a brief larger than its 40 percent share is refused before budget or credentials', async t => {
+  const h = harness(t, { budget: () => assert.fail('budget before brief-size check') });
+  const oversized = 'b'.repeat(32_001);
+  decision(h, {}, oversized);
+  assert.equal(await main([...record, ...files(h, oversized), '--execute'], h), 2);
+  assert.equal(h.output.at(-1), 'brief too large to judge\n');
+  assert.equal(existsSync(join(h.stateDir, 'outcomes.jsonl')), false);
+});
+
+test('a brief exactly at its share remains intact with a truncated result', async t => {
+  const fullBrief = 'b'.repeat(32_000);
+  const h = harness(t, { readKey: () => 'test', fetchImpl: async (_, options) => {
+    const state = JSON.parse(options.body).state;
+    assert.equal(state.brief, fullBrief);
+    assert.ok(state.result.length <= 48_000);
+    return response();
+  } });
+  decision(h, {}, fullBrief);
+  assert.equal(await main([...record, ...files(h, fullBrief, 'r'.repeat(90_000)), '--execute'], h), 0);
 });
 
 test('Jev errors are private and do not append an outcome', async t => {
