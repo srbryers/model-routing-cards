@@ -17,7 +17,7 @@ import { pick } from '../scripts/pick.mjs';
 import { loadLocalConfig } from '../scripts/local-config.mjs';
 import { findCard } from '../scripts/cards.mjs';
 import { classify } from '../scripts/classify.mjs';
-import { readQuota, buildSpawn } from '../scripts/adapters/bb.mjs';
+import { readQuota, buildSpawn, buildApproval } from '../scripts/adapters/bb.mjs';
 import { stateDirectory, readState, readStateLog, logDecision, setLimit, withStateLock } from '../scripts/state.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -87,6 +87,7 @@ function present(decision, json) {
     + decision.notes.map(note => `! ${note}\n`).join('')
     + decision.why.map(reason => `- ${reason}\n`).join('')
     + (decision.instruction ? `${decision.instruction}\nSpend approval required: ${decision.requiresSpendApproval}\n` : '')
+    + (decision.approval ? `approval preview (rerun pick after approval): ${JSON.stringify(decision.approval)}\n` : '')
     + (decision.spawn ? `spawn: ${JSON.stringify(decision.spawn.argv)}\nmissing: ${decision.spawn.missing.join(', ') || 'none'}\n` : '');
 }
 
@@ -105,7 +106,7 @@ export async function runPick(args, deps = {}) {
   const repoDir = resolve(flags.repo ?? deps.cwd ?? process.cwd());
   const repo = (deps.repoKey ?? repoKey)(repoDir);
   const override = (deps.loadOverride ?? loadOverride)(repoDir);
-  const localConfig = (deps.loadLocalConfig ?? loadLocalConfig)(policy, { env: deps.env ?? process.env });
+  const { error: localConfigError, ...localConfig } = (deps.loadLocalConfig ?? loadLocalConfig)(policy, { env: deps.env ?? process.env });
   const brief = flags['brief-file'] === undefined ? flags.brief : (deps.readFile ?? readFileSync)(resolve(flags['brief-file']), 'utf8');
   const input = { kind: flags.kind, execute: flags.execute, failures, machine: flags.machine,
     spendApproved: flags['spend-approved'], requireQuota: flags['require-quota'], author: flags.author, mainThread: flags['main-thread'], project: flags.project,
@@ -125,12 +126,14 @@ export async function runPick(args, deps = {}) {
   const decision = await withStateLock(dir, () => {
     const now = deps.now ?? new Date();
     const state = readState(dir);
-    const decision = pick(input, { policy, repo, override, quota, classifier, cards, localConfig, ...state, now,
+    const decision = pick(input, { policy, repo, override, quota, classifier, cards, localConfig, localConfigError, ...state, now,
       id: `dec_${new Date(now).getTime()}_${randomUUID().slice(0, 8)}` });
     decision.why.push(...found.why);
     if (state.unreadableLogLines) decision.notes.push(`skipped ${state.unreadableLogLines} unreadable log lines`);
     const spawn = buildSpawn(decision, input);
     if (spawn) decision.spawn = spawn;
+    const approval = buildApproval(decision, input);
+    if (approval) Object.assign(decision, { spawn: null, approval });
     return logDecision(dir, decision, brief);
   });
   (deps.stdout ?? (text => process.stdout.write(text)))(present(decision, flags.json || !(deps.isTTY ?? process.stdout.isTTY)));

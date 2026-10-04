@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -23,18 +23,19 @@ export function validateLocalConfig(config, policy) {
 }
 
 export function loadLocalConfig(policy, { env = process.env, readFile = readFileSync } = {}) {
-  const file = join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config'), 'model-routing', 'local.json');
+  const file = resolve(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config'), 'model-routing', 'local.json');
+  const unavailable = message => ({ routes: {}, error: `${file}: ${message}; local routes unavailable` });
   let contents;
   try { contents = readFile(file, 'utf8'); }
   catch (error) {
     if (error.code === 'ENOENT') return { routes: {} };
-    throw new Error('local.json could not be read');
+    return unavailable('could not be read');
   }
   let config;
-  // ⚠ A parse error can echo a private model path; report only the config name.
+  // ⚠ Parser errors can echo file contents. Report the config path, never its contents.
   try { config = JSON.parse(contents); }
-  catch { throw new TypeError('local.json must be valid JSON'); }
+  catch { return unavailable('must be valid JSON'); }
   const result = validateLocalConfig(config, policy);
-  if (!result.ok) throw new TypeError(result.errors.join('\n'));
+  if (!result.ok) return unavailable('invalid local model configuration');
   return config;
 }

@@ -131,7 +131,7 @@ export function validatePolicy(policy) {
       continue;
     }
     if (!fields(route, path, ['provider', 'model', 'machines', 'pool', 'vendor'],
-      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels', 'modelFrom', 'costPer1M', 'disabled', 'requiresSpendApproval', 'note'])) continue;
+      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels', 'modelFrom', 'costPer1M', 'disabled', 'requiresSpendApproval', 'note', 'supportedReasoning'])) continue;
     check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
     if (has(route, 'modelFrom')) {
@@ -144,12 +144,19 @@ export function validatePolicy(policy) {
     const requiredProvider = route.pool === 'claude' ? 'claude-code' : pools[route.pool]?.requiredProvider;
     check(!requiredProvider || route.provider === requiredProvider, `${path}: pool ${route.pool} requires provider ${requiredProvider}`);
     if (muse(id, route)) check(Array.isArray(route.machines) && route.machines.every(m => m === 'mac-studio'), `${path}: Muse is mac-studio only`);
+    if (has(route, 'supportedReasoning')) {
+      const supported = list(route.supportedReasoning, `${path}.supportedReasoning`, ['none', ...LEVELS]);
+      const cap = capFor(id, route);
+      check(!cap || supported.every(level => LEVELS.indexOf(level) <= LEVELS.indexOf(cap)), `${path}.supportedReasoning exceeds cap ${cap}`);
+    }
     if (has(route, 'disabled')) check(nonempty(route.disabled), `${path}.disabled must be a nonempty string`);
     if (has(route, 'note')) check(nonempty(route.note), `${path}.note must be a nonempty string`);
     if (has(route, 'requiresSpendApproval')) check(typeof route.requiresSpendApproval === 'boolean', `${path}.requiresSpendApproval must be boolean`);
     if (route.pool === 'metered') {
       check(route.requiresSpendApproval === true, `${path}: metered workers require spend approval`);
       check(has(route, 'costPer1M'), `${path}.costPer1M is required for metered workers`);
+      // ⚠ A disabled model absent from the catalog must be checked before enabling it.
+      check(route.disabled || has(route, 'supportedReasoning'), `${path}.supportedReasoning is required for enabled metered workers`);
     }
     if (has(route, 'costPer1M') && fields(route.costPer1M, `${path}.costPer1M`, ['in', 'out'])) {
       for (const direction of ['in', 'out']) {
@@ -471,7 +478,7 @@ export function kindsForClassifier(policy) {
 }
 
 /** Expand policy order only. PR 3 applies quota, liveness, vendor checks and card trust. */
-export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0, reviewFallbacks = false, meteredFallbacks = false, localConfig = null } = {}) {
+export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0, reviewFallbacks = false, meteredFallbacks = false, localConfig = null, localConfigError = null } = {}) {
   assertValid(validatePolicy(policy), 'policy');
   if (localConfig !== null) assertValid(validateLocalConfig(localConfig, policy), 'local config');
   if (!has(policy.kinds, kind)) throw new TypeError(`Unknown kind: ${kind}`);
@@ -557,6 +564,10 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
       blocked.push({ route: id, why: route.disabled });
       continue;
     }
+    if (route.modelFrom === 'local' && localConfigError) {
+      blocked.push({ route: id, why: localConfigError });
+      continue;
+    }
     const external = route.type === 'external';
     const model = route.modelFrom === 'local' ? localConfig?.routes[id]?.model : route.model;
     if (!external && !model) {
@@ -575,12 +586,23 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
     seen.set(id, candidate.source);
     const cap = capFor(id, route);
     const capped = !external && cap && LEVELS.indexOf(candidate.reasoning) > LEVELS.indexOf(cap);
+    let reasoning = external ? null : capped ? cap : candidate.reasoning;
+    if (!external && has(route, 'supportedReasoning')) {
+      // ⚠ Gaps in a model's levels need nearest-neighbor mapping, not just a cap.
+      // Equal distances go up. Null requests and empty support omit the flag.
+      const order = ['none', ...LEVELS];
+      const requested = order.indexOf(reasoning);
+      reasoning = reasoning === null ? null : [...route.supportedReasoning].sort((a, b) =>
+        Math.abs(order.indexOf(a) - requested) - Math.abs(order.indexOf(b) - requested)
+        || order.indexOf(b) - order.indexOf(a))[0] ?? null;
+    }
     candidates.push({ route: id, type: external ? 'external' : 'bb',
       provider: external ? null : route.provider, model: external ? null : model,
-      reasoning: external ? null : capped ? cap : candidate.reasoning, machines,
+      reasoning, machines,
       pool: route.pool, vendor: route.vendor, tier, source: candidate.source,
       fallback: candidate.fallback, escalated: candidate.escalated,
-      reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : ''),
+      reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : '')
+        + (reasoning !== candidate.reasoning && !external ? `; reasoning ${candidate.reasoning} adjusted to ${reasoning ?? 'omitted'} for ${id}` : ''),
       ...(external ? { instruction: route.instruction, requiresSpendApproval: route.requiresSpendApproval } : {}),
       ...(route.costPer1M ? { costPer1M: route.costPer1M, requiresSpendApproval: route.requiresSpendApproval } : {}),
       ...(note || route.note ? { note: [note, route.note].filter(Boolean).join(' ') } : {}) });

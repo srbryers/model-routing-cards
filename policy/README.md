@@ -163,7 +163,7 @@ classification; dispatch stays with the caller.
 | Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. |
 | Pace | `elapsedPct = 100 * (now - (resetsAt - length)) / length`; headroom is elapsed minus used. Weekly length is seven days; session length is five hours. Require a `Z` or explicit UTC offset, clamp elapsed to 0–100, compare full precision and show both headrooms. Ignore windows with a `model` field; duplicate kinds use the highest used percentage. |
 | Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. A difference at or below the margin alternates Sonnet/Astra, starting with Sonnet. Missing weekly data also causes a labelled trial. PC uses the same rule. |
-| Missing quota | Failed reads or missing/invalid/expired windows are unknown, never zero usage. Notes say “quota unknown: hard stops not applied”; valid remaining windows still impose their stops. `--require-quota` checks only pools marked `readable: true` (Claude and Codex). Their eligible candidates still require complete quota, including fallback candidates. Unreadable pools such as Muse and local never block for quota; `why` says they rely on cooldowns. External instructions need no worker quota. |
+| Missing quota | Failed reads or missing/invalid/expired windows are unknown, never zero usage. Notes say “quota unknown: hard stops not applied”; valid remaining windows still impose their stops. `--require-quota` checks only pools marked `readable: true` (Claude and Codex). Check the selected pool, plus both pools when the tier-2 choice uses pace or a quota preference. Unused fallback pools do not count. Unreadable pools such as Muse and local never block for quota; `why` says they rely on cooldowns. External instructions need no worker quota. |
 | Review | Exclude the author's entire vendor. If every candidate is excluded, try the nearest different-vendor route with the same machine, exclusion, cooldown and quota checks. |
 | External | Return the instruction and spend-approval flag, with no spawn arguments. Worker cards cannot bypass an external instruction. |
 
@@ -226,12 +226,38 @@ only a nonempty `model` for a route explicitly marked `modelFrom: "local"`.
 Unknown routes, other fields, invalid JSON and contributor models are rejected.
 An absent file or absent route is allowed: the resolver drops Pi with
 `pi-local model not configured in local.json`, then uses eligible fallbacks.
-Malformed configuration is a usage error (exit 2), rather than a silent fallback.
+Malformed, invalid or unreadable configuration disables only routes marked
+`modelFrom: "local"`. Their `blocked` reason names the full config path; unrelated
+picks continue. Loader diagnostics never echo file contents. If bulk text moves
+to a cloud fallback, the decision says not to send private text; it does not block.
 
 `loadLocalConfig(policy, { env, readFile })` reads and validates the file;
 `validateLocalConfig(config, policy)` is pure. Tests and library callers can pass
 parsed `localConfig` to `resolveCandidates` or through `pick` dependencies.
-Local settings do not modify the shared policy, and no liveness command runs here.
+On file errors, the loader returns empty `routes` and an `error` string. The CLI
+passes it as `localConfigError` to the pure resolver/picker. Local settings do not
+modify the shared policy, and no liveness command runs here. The resolved local
+model ID appears in stdout and in the user's decision log, outside the repo.
+
+## Supported reasoning
+
+Routes may declare `supportedReasoning`, a unique array drawn from
+`none`, `low`, `medium`, `high`, `xhigh`, `max`. An empty array means no reasoning
+setting; omit the flag and do not list it as missing. Omitted declarations retain
+the existing kind level and route cap. A null kind level also omits the flag.
+
+For a declared list, map the requested kind/rule level to the nearest supported
+level in that order. Ties go up: medium becomes high with only low/high support.
+Apply this to every declaring route, not just paid ones, and record adjustments
+in the reason. Declarations cannot exceed a route's cap. `none` is an explicit
+supported setting, distinct from no setting (`[]`).
+
+The Fireworks declarations come from the local Pi model catalog. Kimi and GLM
+support low/high/max; DeepSeek supports none/low/high/max; MiniMax and GPT OSS
+support low/medium/high; Qwen supports none/low/medium/xhigh. The two disabled
+OpenRouter Gemini models are absent from the current local catalog, including
+selected-model queries. Their levels remain unclaimed; adding a verified
+`supportedReasoning` declaration is required before enabling a metered route.
 
 ## Metered routes
 
@@ -262,14 +288,20 @@ A repo/file rule may explicitly select a metered route, subject to the same
 eligibility checks.
 
 Chosen metered workers return `status: "needs_approval"` and exit **5**, including
-`costPer1M` and the full `spawn`. `--spend-approved` changes the status to `ok`.
-Pass it only when Sebastian approved this spend or the task brief already grants
-it. Every decision records `spendApproved`, including false. External routes keep
+`approval: { spawnArgv, costPer1M, route }` and `spawn: null`. The preview is for
+review, not dispatch. Re-run pick with `--spend-approved` to get an `ok` decision
+and runnable `spawn.argv`. This flag is blanket: it binds neither route nor price
+and also approves unknown (null) prices. Callers should pass it only for the
+specific decision Sebastian approved or whose task brief already grants the
+spend, then check the new route and costs. Every decision records `spendApproved`,
+including false. External routes keep
 `status: "external"` and their existing `requiresSpendApproval` behavior.
 Approval is a statement by the caller; pick does not dispatch or bill anything.
 
 Both OpenRouter Gemini routes are disabled because the account has about $0.21
-and calls return 402. Top up, then remove their `disabled` fields. Prelude keeps
+and calls return 402. A matching repo/file rule adds a prominent disabled-route
+note as well as an alternative rejection. Top up, verify and declare their
+supported reasoning, then remove their `disabled` fields. Prelude keeps
 its external Gemini routes and a note about the later Pi replacement. Gemini
 CLI no longer serves personal accounts, so no Gemini subscription route exists.
 
@@ -344,7 +376,7 @@ State is under `MODEL_ROUTING_STATE_DIR`, otherwise
 `$XDG_STATE_HOME/model-routing`, otherwise `~/.local/state/model-routing`.
 The brief is logged as `{ sha256, length }`, where length is JavaScript string
 length (UTF-16 code units). Request/response bodies and credentials are never
-logged. Spawn argv is omitted from the disk log to avoid retaining titles,
+logged. Runnable and approval-preview argv are omitted from the disk log to avoid retaining titles,
 project/section IDs and prompt-file paths; stdout and `logDecision()`’s return
 value keep it. Existing state exports and argument lists are unchanged.
 `readState()` adds `unreadableLogLines` beside `alternation` and `limits`.

@@ -83,7 +83,8 @@
       "runningByDefault": false,
       "livenessCheck": "curl -s -m 3 127.0.0.1:8080/v1/models",
       "type": "bb",
-      "modelFrom": "local"
+      "modelFrom": "local",
+      "supportedReasoning": []
     },
     "gemini-copy": {
       "type": "external",
@@ -147,7 +148,12 @@
         "in": null,
         "out": null
       },
-      "note": "Only tested on mac-studio."
+      "note": "Only tested on mac-studio.",
+      "supportedReasoning": [
+        "low",
+        "high",
+        "max"
+      ]
     },
     "fw-glm-5p3": {
       "type": "bb",
@@ -163,7 +169,12 @@
         "in": null,
         "out": null
       },
-      "note": "Only tested on mac-studio."
+      "note": "Only tested on mac-studio.",
+      "supportedReasoning": [
+        "low",
+        "high",
+        "max"
+      ]
     },
     "fw-deepseek-v4p1-flash": {
       "type": "bb",
@@ -179,7 +190,13 @@
         "in": 0.3,
         "out": 1.2
       },
-      "note": "Only tested on mac-studio."
+      "note": "Only tested on mac-studio.",
+      "supportedReasoning": [
+        "none",
+        "low",
+        "high",
+        "max"
+      ]
     },
     "fw-minimax-m3": {
       "type": "bb",
@@ -195,7 +212,12 @@
         "in": 0.3,
         "out": 1.2
       },
-      "note": "Only tested on mac-studio."
+      "note": "Only tested on mac-studio.",
+      "supportedReasoning": [
+        "low",
+        "medium",
+        "high"
+      ]
     },
     "fw-qwen3p8-max": {
       "type": "bb",
@@ -211,7 +233,13 @@
         "in": null,
         "out": null
       },
-      "note": "Only tested on mac-studio."
+      "note": "Only tested on mac-studio.",
+      "supportedReasoning": [
+        "none",
+        "low",
+        "medium",
+        "xhigh"
+      ]
     },
     "fw-gpt-oss-120b": {
       "type": "bb",
@@ -227,7 +255,12 @@
         "in": null,
         "out": null
       },
-      "note": "Only tested on mac-studio."
+      "note": "Only tested on mac-studio.",
+      "supportedReasoning": [
+        "low",
+        "medium",
+        "high"
+      ]
     },
     "or-gemini-flash": {
       "type": "bb",

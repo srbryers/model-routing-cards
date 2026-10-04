@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadPolicy, validatePolicy } from './policy.mjs';
 import { pick, quotaPace } from './pick.mjs';
-import { normalizeQuota, readQuota, buildSpawn } from './adapters/bb.mjs';
+import { normalizeQuota, readQuota, buildSpawn, buildApproval } from './adapters/bb.mjs';
 const policy = loadPolicy();
 const now = '2026-10-04T15:35:00Z';
 const sample = JSON.parse(readFileSync(new URL('./fixtures/quota.json', import.meta.url), 'utf8'));
@@ -299,7 +299,9 @@ test('tier-1 exhausted subscriptions offer the first unmeasured metered route, w
   assert.deepEqual(d.costPer1M, { in: 0.3, out: 1.2 });
   assert.match(d.why.join(' '), /order is unmeasured; no card backs it/);
   assert.ok(d.notes.includes('Only tested on mac-studio.'));
-  assert.ok(buildSpawn(d, {}).argv.includes(d.model));
+  assert.equal(buildSpawn(d, {}), undefined); assert.equal(d.spawn, null);
+  assert.ok(buildApproval(d, {}).spawnArgv.includes(d.model));
+  assert.equal(d.reasoning, 'high');
   const approved = choose({ kind: 'quick-edit', spendApproved: true }, { limits });
   assert.equal(approved.route, d.route); assert.equal(approved.status, 'ok'); assert.equal(approved.spendApproved, true);
   assert.equal(choose({ kind: 'quick-edit' }, { limits: { muse: '2026-10-05' } }).route, 'luna');
@@ -341,4 +343,33 @@ test('a metered OpenAI model cannot review OpenAI-authored work', () => {
   const d = choose({ kind: 'routine-review', author: 'astra' }, { override: override('fw-gpt-oss-120b') });
   assert.equal(d.route, 'sonnet');
   assert.ok(d.alternatives.some(a => a.route === 'fw-gpt-oss-120b' && /different vendor/.test(a.rejected)));
+});
+
+test('strict quota checks selected and deciding pools, not unused fallbacks', () => {
+  assert.equal(choose({ kind: 'quick-edit', requireQuota: true }, { quota: { claude: quota.claude } }).route, 'muse');
+  assert.equal(choose({ kind: 'bulk-text', requireQuota: true }, { quota: null }).route, 'pi-local');
+  const selectedCodex = choose({ kind: 'quick-edit', requireQuota: true }, { quota: null, limits: { muse: '2026-10-05' } });
+  assert.equal(selectedCodex.status, 'blocked');
+  assert.match(selectedCodex.why.join(' '), /required quota missing for codex/);
+  assert.equal(choose({ requireQuota: true }, { quota: { codex: quota.codex } }).status, 'blocked');
+  assert.equal(choose({ requireQuota: true }, { quota: { codex: quota.codex }, override: override('astra') }).route, 'astra');
+  const explicitPaid = choose({ requireQuota: true }, { quota: { claude: changed(75).claude }, override: override('fw-kimi-k3') });
+  assert.equal(explicitPaid.status, 'needs_approval');
+  const preference = choose({ requireQuota: true }, { quota: { codex: changed(59, 90).codex } });
+  assert.equal(preference.status, 'blocked');
+  assert.match(preference.why.join(' '), /required quota missing for claude/);
+});
+test('disabled repo/file routes and cloud bulk fallbacks get prominent notes', () => {
+  for (const deps of [{ override: override('or-gemini-flash') }, {
+    policy: { ...policy, repos: { 'test/disabled': { rules: override('or-gemini-flash').rules } } }, repo: 'test/disabled',
+  }]) {
+    const d = choose({}, deps);
+    assert.ok(d.notes.includes(`repo rule names or-gemini-flash, which is disabled: ${policy.routes['or-gemini-flash'].disabled}`));
+  }
+  for (const deps of [{ localConfig: null }, { limits: { 'pi-local': '2026-10-05' } }]) {
+    const d = choose({ kind: 'bulk-text' }, deps);
+    assert.equal(d.status, 'ok'); assert.equal(d.route, 'muse');
+    assert.ok(d.notes.includes('pi-local unavailable; falling back to muse (cloud). Do not send private text.'));
+  }
+  assert.ok(!choose({ kind: 'bulk-text' }).notes.some(note => note.includes('Do not send private text')));
 });

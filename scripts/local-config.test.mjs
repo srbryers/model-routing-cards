@@ -29,15 +29,16 @@ test('XDG config location wins, home default works, and missing files are option
     throw Object.assign(new Error('absent'), { code: 'ENOENT' });
   } }), { routes: {} });
 });
-test('bad local files fail with safe diagnostics', () => {
+test('bad local files return safe diagnostics with the full path', () => {
   for (const [readFile, message] of [
     [() => '{"model":"private-model-value"', /must be valid JSON/],
     [() => { throw Object.assign(new Error('private-path'), { code: 'EACCES' }); }, /could not be read/],
-    [() => JSON.stringify({ routes: { muse: { model: 'private-model-value' } } }), /not marked modelFrom/],
+    [() => JSON.stringify({ routes: { muse: { model: 'private-model-value' } } }), /invalid local model configuration/],
   ]) {
-    assert.throws(() => loadLocalConfig(policy, { env: { HOME: '/tmp/local-home' }, readFile }), error => {
-      assert.match(error.message, message); assert.doesNotMatch(error.message, /private-/); return true;
-    });
+    const result = loadLocalConfig(policy, { env: { HOME: '/tmp/local-home' }, readFile });
+    assert.deepEqual(result.routes, {});
+    assert.match(result.error, message); assert.doesNotMatch(result.error, /private-/);
+    assert.ok(result.error.startsWith('/tmp/local-home/.config/model-routing/local.json: '));
   }
 });
 test('resolver uses an injected local model without modifying public policy', () => {

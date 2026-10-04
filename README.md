@@ -98,8 +98,10 @@ Exit codes are **0** for a route or external instruction, **3** for `needs_kind`
 Every decision is logged under `$XDG_STATE_HOME/model-routing/decisions.jsonl`
 (default `~/.local/state/model-routing`). `MODEL_ROUTING_STATE_DIR` overrides the
 whole directory. The brief is stored only as a SHA-256 hash and character length.
-The disk log omits spawn argv so titles, project/section IDs and prompt-file paths
-are not recorded. Stdout keeps the full spawn arguments.
+The disk log omits runnable and approval-preview argv so titles, project/section
+IDs and prompt-file paths are not recorded. Stdout keeps the full arguments.
+Both stdout and the decision log contain the local model ID from `local.json`.
+The log stays in your own state directory, outside the repository.
 No routing state is written into the task repo. See [policy details](policy/README.md).
 
 `pick` finds cards by basename, such as `implementation.card.json`, in this order:
@@ -121,13 +123,21 @@ match its configured basename. Repo/file routing rules always outrank cards.
 Pi needs a model in local XDG config; see [local model configuration](policy/README.md#local-model-configuration).
 The decision’s `beforeSpawn` lists setup steps for the caller. Repo review gates
 stay in `notes`. Unreadable quota pools rely on cooldowns, not `--require-quota`.
+Strict quota checks the selected pool, plus both pools for a tier-2 pace or quota
+preference decision. Unused fallback pools do not block. If local Pi is unavailable,
+`bulk-text` may use a cloud fallback; the decision warns not to send private text.
+Bad local config disables only local routes and reports the full file path.
 
 Metered Pi routes cost money on every call. They are last fallbacks only when
 quota stops or cooldowns exhaust the subscriptions; repo/file rules can also
-request them explicitly. A paid choice returns `needs_approval` with full spawn
-arguments and `costPer1M` (USD; null means unknown). Pass `--spend-approved` only
-when Sebastian approved this spend, or the task brief already grants it. The
-log records that flag. Picking never starts a worker or makes a paid call.
+request them explicitly. A paid choice returns `needs_approval` with `spawn: null`
+and `approval: { spawnArgv, costPer1M, route }` for review. Re-run pick with
+`--spend-approved` to get runnable `spawn.argv`. Prices are USD per million tokens;
+null means unknown. **This approval flag is blanket:** it is not tied to a route
+or price and includes unknown prices. Pass it only for the specific decision
+Sebastian approved (or whose task brief explicitly grants that spend). Recheck
+the route and costs on the new decision. The log records the flag. Picking never
+starts a worker or makes a paid call.
 OpenRouter routes are disabled until their credit is topped up. Gemini CLI no
 longer serves personal accounts, so there is no Gemini subscription route.
 See [metered routing](policy/README.md#metered-routes).

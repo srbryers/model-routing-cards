@@ -607,3 +607,50 @@ test('fieldEvidence defaults and validation preserve a head-to-head readiness th
   const p = copy(); p.fieldEvidence = { minOutcomesPerRoute: 1, minRoutes: 3 };
   assert.deepEqual(validatePolicy(p), { ok: true, errors: [] });
 });
+
+test('every metered fallback clamps every kind level to supported reasoning, ties upward', () => {
+  const expected = {
+    'fw-deepseek-v4p1-flash': { medium: 'high', high: 'high', xhigh: 'max' },
+    'fw-minimax-m3': { medium: 'medium', high: 'high', xhigh: 'high' },
+    'fw-kimi-k3': { medium: 'high', high: 'high', xhigh: 'max' },
+    'fw-glm-5p3': { medium: 'high', high: 'high', xhigh: 'max' },
+  };
+  for (const [route, levels] of Object.entries(expected)) {
+    for (const [kind, entry] of Object.entries(policy.kinds)) {
+      const { candidates } = resolveCandidates(policy, kind, { override: rule(route, [kind]) });
+      assert.equal(candidates[0].reasoning, entry.reasoning === null ? null : levels[entry.reasoning], `${route}: ${kind}`);
+    }
+  }
+});
+test('supported reasoning applies to all declaring routes, including no support and explicit none', () => {
+  const p = copy(); p.routes.muse.supportedReasoning = ['low', 'high'];
+  assert.equal(resolveCandidates(p, 'quick-edit').candidates[0].reasoning, 'high');
+  p.routes.muse.supportedReasoning = [];
+  assert.equal(resolveCandidates(p, 'quick-edit').candidates[0].reasoning, null);
+  p.routes.muse.supportedReasoning = ['none'];
+  assert.equal(resolveCandidates(p, 'quick-edit').candidates[0].reasoning, 'none');
+  for (const [route, level, expected] of [
+    ['fw-qwen3p8-max', 'high', 'xhigh'], ['fw-gpt-oss-120b', 'xhigh', 'high'],
+    ['fw-kimi-k3', 'low', 'low'], ['fw-deepseek-v4p1-flash', 'max', 'max'],
+  ]) {
+    const c = resolveCandidates(policy, 'quick-edit', { override: rule(route, ['quick-edit'], { reasoning: level }) }).candidates[0];
+    assert.equal(c.reasoning, expected);
+  }
+});
+test('supported reasoning validation rejects invalid levels, duplicates and cap violations', () => {
+  for (const value of [null, 'high', {}, ['bogus'], ['high', 'high'], [null]]) {
+    const p = copy(); p.routes.muse.supportedReasoning = value;
+    invalid(validatePolicy(p), /supportedReasoning/);
+  }
+  const p = copy(); p.routes.sonnet.supportedReasoning = ['high', 'max'];
+  invalid(validatePolicy(p), /supportedReasoning exceeds cap/);
+});
+
+test('unlisted disabled metered models need a verified reasoning declaration before enabling', () => {
+  for (const route of ['or-gemini-flash', 'or-gemini-pro']) {
+    const p = copy(); delete p.routes[route].disabled;
+    invalid(validatePolicy(p), /supportedReasoning is required/);
+    p.routes[route].supportedReasoning = [];
+    assert.equal(validatePolicy(p).ok, true);
+  }
+});

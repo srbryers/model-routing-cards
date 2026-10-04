@@ -36,7 +36,16 @@ export function readQuota({ execFile = execFileSync } = {}) {
 }
 
 export function buildSpawn(decision, input) {
-  if (!['ok', 'needs_approval'].includes(decision.status)) return undefined;
+  if (decision.status !== 'ok') return undefined;
+  return spawnArguments(decision, input);
+}
+
+export function buildApproval(decision, input) {
+  if (decision.status !== 'needs_approval') return undefined;
+  return { spawnArgv: spawnArguments(decision, input).argv, costPer1M: decision.costPer1M, route: decision.route };
+}
+
+function spawnArguments(decision, input) {
   const argv = ['bb', 'thread', 'spawn'];
   const missing = [];
   const add = (name, value, key = name) => {

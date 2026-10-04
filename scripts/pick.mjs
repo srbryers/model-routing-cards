@@ -28,7 +28,7 @@ export function quotaPace(snapshot, now) {
 
 /** Pure decision: no clocks, files, commands, credentials or state mutation. */
 export function pick(input, deps) {
-  const { policy, override = null, repo = null, classifier, alternation = {}, limits = {}, cards = {}, localConfig = null } = deps;
+  const { policy, override = null, repo = null, classifier, alternation = {}, limits = {}, cards = {}, localConfig = null, localConfigError = null } = deps;
   const now = new Date(deps.now).getTime();
   if (!Number.isFinite(now)) throw new TypeError('now must be a valid date');
   const quota = quotaPace(deps.quota, now);
@@ -58,14 +58,19 @@ export function pick(input, deps) {
   const machines = override?.machines ?? policy.repos[repo]?.machines ?? machineIds(policy);
   const machine = input.machine ?? (machines.length === 1 ? machines[0] : machines.includes(policy.machines.default) ? policy.machines.default : machines[0]);
   result.machine = machine;
-  const options = { repo, override, machine, failures: input.failures ?? 0, localConfig };
+  const options = { repo, override, machine, failures: input.failures ?? 0, localConfig, localConfigError };
   const resolved = resolveCandidates(policy, kind, options);
   let candidates = resolved.candidates;
   alternatives.push(...resolved.blocked.map(({ route, why }) => ({ route, rejected: why })));
   // Notes survive even when all candidates have been removed by the resolver.
   for (const rules of [policy.repos[repo], override]) {
     for (const rule of rules?.rules ?? []) {
-      if (rule.note && (rule.kinds.includes(kind) || rule.kinds.includes('*')) && !notes.includes(rule.note)) notes.push(rule.note);
+      if (!rule.kinds.includes(kind) && !rule.kinds.includes('*')) continue;
+      if (rule.note && !notes.includes(rule.note)) notes.push(rule.note);
+      if (policy.routes[rule.route]?.disabled) {
+        const note = `repo rule names ${rule.route}, which is disabled: ${policy.routes[rule.route].disabled}`;
+        if (!notes.includes(note)) notes.push(note);
+      }
     }
   }
   const reject = (candidate, reason) => {
@@ -96,14 +101,6 @@ export function pick(input, deps) {
   const quotaCandidates = candidates[0]?.type === 'external' ? [] : candidates;
   for (const pool of new Set(quotaCandidates.filter(c => c.type !== 'external').map(c => c.pool))) {
     if (!policy.pools[pool].readable) why.push(`${pool} quota unreadable by design; relying on cooldowns`);
-  }
-  const unknownPools = [...new Set(quotaCandidates.filter(c => c.type !== 'external'
-    && policy.pools[c.pool].readable && missingQuota(c.pool)).map(c => c.pool))];
-  if (unknownPools.length) warnQuota();
-  if (input.requireQuota && unknownPools.length) {
-    result.status = 'blocked';
-    why.push(`quota unknown: hard stops not applied; required quota missing for ${unknownPools.join(', ')}`);
-    return result;
   }
   candidates = candidates.filter(c => {
     for (const rule of policy.quota.thresholds) {
@@ -139,6 +136,7 @@ export function pick(input, deps) {
   }
   // ⚠ Apply a lone threshold to eligibility before repo priority or card evidence.
   // The fallback may relax this preference, but never resurrect a reserved route.
+  const preferencePools = new Set();
   for (const tier of new Set(candidates.map(c => c.tier))) {
     const preferences = policy.quota.thresholds.filter(rule => rule.action === 'prefer-route'
       && rule.tiers.includes(tier) && quota[rule.pool]?.[rule.window]?.used > rule.usedPercentAbove);
@@ -155,6 +153,7 @@ export function pick(input, deps) {
       notes.push(`quota preference for ${rule.route} unavailable; no allowed ${targetPool} candidate, falling back to ${rule.pool}`);
       continue;
     }
+    preferencePools.add(rule.pool); preferencePools.add(targetPool);
     const poolLabel = { claude: 'Claude', codex: 'Codex' }[rule.pool] ?? rule.pool;
     const windowLabel = rule.window === 'five-hour' ? '5h' : rule.window;
     const reason = `${poolLabel} ${windowLabel} ${quota[rule.pool][rule.window].used}% > ${rule.usedPercentAbove}%`;
@@ -164,9 +163,11 @@ export function pick(input, deps) {
   let selected = candidates[0];
   let basis = 'policy';
   let tied = false;
+  let paceUsed = false;
   const pair = policy.tieBreak.routes.map(id => candidates.find(c => c.route === id));
   const repoFirst = selected.source === 'repo' || selected.source === 'file';
   if (!repoFirst && selected.tier === policy.tieBreak.tier && pair.every(Boolean)) {
+    paceUsed = true;
     const heads = pair.map(c => quota[c.pool]?.[policy.tieBreak.window]?.headroom);
     if (heads.every(Number.isFinite)) {
       why.push(`${pair[0].route} weekly headroom ${heads[0].toFixed(2)} points; ${pair[1].route} weekly headroom ${heads[1].toFixed(2)} points`);
@@ -207,6 +208,16 @@ export function pick(input, deps) {
       } else why.push(`${label}, costs unknown, incomparable or not cheaper, ignored`);
     } else why.push(`${label}, ${card.trust === 'CALIBRATED' ? 'winner not allowed' : card.trust === 'NO_CLEAR_WINNER' ? 'no eligible pace tie' : 'insufficient evidence'}, ignored`);
   }
+  // ⚠ Unused fallback pools cannot block a choice they did not influence.
+  const relevantPools = new Set(preferencePools.has(selected.pool) ? preferencePools : []);
+  if (selected.type !== 'external') relevantPools.add(selected.pool);
+  if (paceUsed && basis !== 'card') for (const c of pair) relevantPools.add(c.pool);
+  const unknownPools = [...relevantPools].filter(pool => policy.pools[pool].readable && missingQuota(pool));
+  if (input.requireQuota && unknownPools.length && selected.type !== 'external') {
+    result.status = 'blocked';
+    why.push(`quota unknown: hard stops not applied; required quota missing for ${unknownPools.join(', ')}`);
+    return result;
+  }
   why.unshift(`tier ${selected.tier} for ${kind}`);
   why.push(selected.reason);
   if (quota === 'unknown') why.push('quota unknown');
@@ -219,10 +230,14 @@ export function pick(input, deps) {
   } else {
     Object.assign(result, { provider: selected.provider, model: selected.model, reasoning: selected.reasoning });
     const route = policy.routes[selected.route];
+    if (kind === 'bulk-text' && selected.route !== 'pi-local' && selected.pool !== 'local') {
+      notes.push(`pi-local unavailable; falling back to ${selected.route} (cloud). Do not send private text.`);
+    }
     if (route.note && !notes.includes(route.note)) notes.push(route.note);
     if (route.requiresSpendApproval) {
       Object.assign(result, { requiresSpendApproval: true, costPer1M: route.costPer1M,
-        status: input.spendApproved ? 'ok' : 'needs_approval' });
+        status: result.spendApproved ? 'ok' : 'needs_approval',
+        ...(!result.spendApproved ? { spawn: null } : {}) });
     }
     if (route.runningByDefault === false && route.livenessCheck) {
       result.beforeSpawn.push(`Check the local server is running: \`${route.livenessCheck}\``);

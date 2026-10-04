@@ -48,7 +48,9 @@ export function logDecision(dir, decision, brief) {
     sha256: createHash('sha256').update(brief).digest('hex'), length: brief.length,
   } }) };
   // ⚠ Dispatch arguments contain task text and private identifiers. Keep them only in stdout.
-  const logged = { ...record, ...(record.spawn ? { spawn: { missing: record.spawn.missing } } : {}) };
+  const logged = { ...record,
+    ...(record.approval ? { approval: { route: record.approval.route, costPer1M: record.approval.costPer1M } } : {}),
+    ...(record.spawn ? { spawn: { missing: record.spawn.missing } } : {}) };
   appendStateLog(dir, 'decisions.jsonl', logged);
   return record;
 }
