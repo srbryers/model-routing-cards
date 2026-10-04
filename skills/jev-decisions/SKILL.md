@@ -85,7 +85,7 @@ no additional API budget. When Jev is unavailable, uncalibrated for an automated
 action, or outside the budget, use deterministic code or the existing subscription
 reasoning model as appropriate, and disclose the fallback. Keep work moving.
 
-For Flora, first apply this policy to assessing proposed export repairs and
+For a 3D or export pipeline, first apply this policy to assessing proposed export repairs and
 recognizing repeats of rejected experiments. Keep measured export equivalence
 in code and visual fidelity with image-capable reviewers and the named human
 gate. Textual review summaries are not a substitute for seeing the asset.

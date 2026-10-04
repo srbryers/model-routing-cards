@@ -83,7 +83,7 @@ async function viaOpenRouter({ model, prompt, schema, key }) {
  * ⚠⚠ THE MODEL ID CARRIES ITS PROVIDER PREFIX. `deepseek-v4-flash-marathon`
  * answers `403 model_not_allowed`; `subconscious/deepseek-v4-flash-marathon`
  * answers 200. Ask `GET /v1/models` what it calls a model rather than typing
- * what the docs call it — a wedding-repo sprint lost an end-to-end run to this.
+ * what the docs call it — one project's sprint lost an end-to-end run to this.
  *
  * ⚠ IT REPORTS NO COST. There is no `usage.cost`, so the envelope carries
  * tokens and `cost_source: 'computed'`, and the caller prices them from the
@@ -125,8 +125,8 @@ async function viaSubconscious({ model, prompt, schema, key }) {
 /**
  * ⚠⚠ A FRESH EMPTY DIRECTORY PER CALL, REMOVED AFTERWARDS. The first version
  * reused one fixed directory because the CLI puts the working directory into the
- * model's context, and a new path changes the prompt prefix: measured in the
- * wedding repo as cached input falling from 19,840 to 2,432 tokens. That saving
+ * model's context, and a new path changes the prompt prefix: measured in a
+ * private repo as cached input falling from 19,840 to 2,432 tokens. That saving
  * is given up on purpose. A reused directory is only empty the first time —
  * anything an earlier run left in it is readable by the next one, which is no
  * confinement at all. Codex pays the lost cache; correctness comes first.
@@ -226,7 +226,7 @@ function runCodex({ model, prompt, schema, spawn, dirs }) {
 
   /**
    * ⚠⚠ `codex exec` IS AN AGENT, NOT A COMPLETION, AND THAT COST REAL MONEY.
-   * Run inside a repo it goes exploring: one call in the wedding repo returned a
+   * Run inside a repo it goes exploring: one call in a private repo returned a
    * tree describing that repo's git state instead of answering the brief, at
    * roughly 24× a normal call's tokens, because it had been reading the working
    * tree. A budget ceiling cannot catch that — it is checked BEFORE the call.

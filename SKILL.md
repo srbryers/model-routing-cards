@@ -18,7 +18,7 @@ your policy and live quota. Every decision says what it rests on, and it never
 names a winner from noise.
 
 It does not sit in a request path, proxy calls, or retry and fail over per
-request. Gateways (OpenRouter, LiteLLM, Prelude's `llm-proxy`) do that, and
+request. Gateways (OpenRouter, LiteLLM, your own proxy) do that, and
 can read this tool's policy as config.
 
 It is not an eval platform: no dashboards, tracing or online scoring.
@@ -100,7 +100,7 @@ price-per-million table hides.
 
 ## ⚠⚠ A card expires; a benchmark does not
 
-Fathoms freezes its ten prompts on purpose: to compare pipeline versions, a
+A regression benchmark freezes its prompts on purpose: to compare pipeline versions, a
 moving target is useless. Routing is the opposite question — model lineups
 change monthly, so a card that cannot go stale will keep recommending a model
 that was retired. **Same machinery, opposite lifetime.** Cards carry a

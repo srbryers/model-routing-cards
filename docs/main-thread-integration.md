@@ -149,7 +149,7 @@ subscriptions are exhausted, `pick` returns `blocked` and you decide.
 Exclusions, machine limits and repo rules never lead to the automatic metered
 fallback. Tier 3 has no metered fallback.
 
-A repo or file rule that names a metered route (for example Prelude's
+A repo or file rule that names a metered route (for example
 `gemini-flash`) is different: it is a deliberate choice of a model no
 subscription offers. `pick` returns it even while subscriptions have room, and
 it still needs spend approval (`needs_approval`). The ceiling governs only the

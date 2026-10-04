@@ -79,7 +79,7 @@ test('CLI limit persists cooldown and blocked decisions are logged with code 4',
   assert.equal(logged.at(-1).status, 'blocked');
 });
 test('external decision exits zero, preserves note and never has spawn arguments', async t => {
-  const h = harness(t, { repoKey: () => 'acme/prelude-social-skills-coach', withOverlay: true });
+  const h = harness(t, { repoKey: () => 'acme/coach-app', withOverlay: true });
   assert.equal(await runPick(['--kind', 'user-facing-copy'], h), 0);
   assert.equal(last(h).status, 'external'); assert.equal(last(h).spawn, undefined);
 });
@@ -273,8 +273,8 @@ test('approval syntax rejects bare, empty and unknown routes before any external
     assert.match(h.output.at(-1), /name the approved route/);
   }
 });
-test('Prelude Gemini visual CLI requires approval for that route, leaving external copy unchanged', async t => {
-  const h = harness(t, { repoKey: () => 'acme/prelude-social-skills-coach', withOverlay: true });
+test('coach-app Gemini visual CLI requires approval for that route, leaving external copy unchanged', async t => {
+  const h = harness(t, { repoKey: () => 'acme/coach-app', withOverlay: true });
   const args = ['--kind', 'visual-implementation', '--no-quota'];
   assert.equal(await runPick(args, h), 5);
   assert.equal(last(h).route, 'gemini-flash'); assert.equal(last(h).provider, 'acp-gemini');

@@ -1,7 +1,7 @@
 {
   "policyVersion": 1,
   "repos": {
-    "acme/wedding": {
+    "acme/data-app": {
       "rules": [
         {
           "kinds": [
@@ -21,7 +21,7 @@
         }
       ]
     },
-    "acme/fathoms-game": {
+    "acme/game-app": {
       "machines": [
         "pc"
       ],
@@ -39,7 +39,7 @@
         }
       ]
     },
-    "acme/flora-studio": {
+    "acme/studio-3d": {
       "rules": [
         {
           "kinds": [
@@ -60,7 +60,7 @@
         }
       ]
     },
-    "acme/prelude-social-skills-coach": {
+    "acme/coach-app": {
       "rules": [
         {
           "kinds": [
@@ -146,7 +146,7 @@
         }
       ]
     },
-    "acme/ui-kit": {
+    "acme/kit-lib": {
       "rules": [
         {
           "kinds": [

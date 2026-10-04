@@ -19,8 +19,8 @@ export const TRUST = {
    */
   REQUIRE_SEPARATION: true,
   /**
-   * ⚠⚠ A ROUTING CARD EXPIRES; A REGRESSION BENCHMARK DOES NOT. Fathoms freezes
-   * its ten prompts on purpose — to compare pipeline versions a moving target is
+   * ⚠⚠ A ROUTING CARD EXPIRES; A REGRESSION BENCHMARK DOES NOT. A regression
+   * benchmark freezes its prompts on purpose — to compare pipeline versions a moving target is
    * useless. Routing is the opposite question: lineups change monthly, so a card
    * that cannot go stale keeps recommending a model that was retired. Same
    * machinery, opposite lifetime.

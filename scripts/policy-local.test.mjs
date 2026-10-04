@@ -5,10 +5,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadPolicy, validatePolicy, validateOverride, resolveCandidates, machineIds } from './policy.mjs';
 import { loadEffectivePolicy, validateOverlay, exportLocal, overlayPath } from './policy-local.mjs';
+import { normalizeQuota } from './adapters/bb.mjs';
 import { main } from '../bin/model-routing.mjs';
 
 const publicPolicy = loadPolicy();
-const oldPolicy = loadPolicy(new URL('./fixtures/policy.pre-overlay.json', import.meta.url));
+// ⚠ The fixture is the historical file and fails today's schema (no `quota.ceilingPercent`, older
+// kind descriptions). It is read raw: only its repo entries and person-naming text are used.
+const fixtureUrl = new URL('./fixtures/policy.pre-overlay.json', import.meta.url);
+const oldRaw = JSON.parse(readFileSync(fixtureUrl, 'utf8'));
+const oldRepos = oldRaw.repos;
+const oldInstruction = oldRaw.routes['gemini-copy'].instruction;
+// What `pick` must see on the maintainer's machine after migration: today's public policy plus those two things.
+const reference = structuredClone(publicPolicy);
+reference.repos = structuredClone(oldRepos);
+reference.routes['gemini-copy'].instruction = oldInstruction;
+assert.deepEqual(validatePolicy(reference), { ok: true, errors: [] });
 const example = JSON.parse(readFileSync(new URL('../policy/examples/policy.local.example.json', import.meta.url), 'utf8'));
 
 function home(t) {
@@ -103,55 +114,117 @@ test('an overlay never edits the policy it was merged into', () => {
 
 // ---- Equivalence with the policy that held the personal rules ----
 
-const repos = Object.keys(oldPolicy.repos);
-const kinds = Object.keys(oldPolicy.kinds);
-const machines = [undefined, ...machineIds(oldPolicy)];
+const repos = Object.keys(oldRepos);
+const kinds = Object.keys(publicPolicy.kinds);
 
 test('the old policy file has the five personal repos this change moves', () => {
   assert.equal(repos.length, 5);
   assert.ok(repos.every(repo => !(repo in publicPolicy.repos)));
 });
-test('public policy plus the exported overlay resolves exactly like the old policy', () => {
-  const overlay = exportLocal(oldPolicy, publicPolicy);
-  const { policy } = loadEffectivePolicy({ env: { HOME: '/unused' }, readFile: () => JSON.stringify(overlay) });
-  let compared = 0;
-  for (const repo of [null, ...repos]) for (const kind of kinds) for (const machine of machines) for (const failures of [0, 2]) {
-    for (const extra of [{}, { reviewFallbacks: true }, { meteredFallbacks: true }]) {
-      const options = { repo, machine, failures, ...extra, localConfig: { routes: { 'pi-local': { model: 'local-test-model' } } } };
-      assert.deepEqual(resolveCandidates(policy, kind, options), resolveCandidates(oldPolicy, kind, options),
-        JSON.stringify({ kind, ...options }));
-      compared++;
-    }
-  }
-  assert.equal(compared, 6 * kinds.length * machines.length * 2 * 3);
-});
-test('export-local from the old file restores the old policy exactly, text included', () => {
-  const overlay = exportLocal(oldPolicy, publicPolicy);
-  assert.deepEqual(overlay.repos, oldPolicy.repos);
-  // The one person-naming text in the old public file is the external route instruction.
+test('export-local restores the old repo rules and person-naming text, and nothing else', () => {
+  const { overlay, skipped } = exportLocal(oldRaw, publicPolicy);
+  assert.deepEqual(overlay.repos, oldRepos);
   assert.deepEqual(Object.keys(overlay).sort(), ['instructions', 'policyVersion', 'repos']);
-  assert.deepEqual(overlay.instructions, { 'gemini-copy': oldPolicy.routes['gemini-copy'].instruction });
-  const { policy } = loadEffectivePolicy({ env: { HOME: '/unused' }, readFile: () => JSON.stringify(overlay) });
-  assert.deepEqual(policy, oldPolicy);
-  assert.notEqual(publicPolicy.routes['gemini-copy'].instruction, oldPolicy.routes['gemini-copy'].instruction);
-});
-test('export-local carries only person-naming text, not other differences from the current policy', () => {
-  const changed = structuredClone(oldPolicy);
-  changed.kinds.docs.description = 'A newer public description of documentation work.';
-  changed.routes.luna.note = 'Ask Dana about quota.';
-  const current = structuredClone(publicPolicy);
-  current.routes.luna.note = 'Ask the user about quota.';
-  const overlay = exportLocal(changed, current);
+  assert.deepEqual(overlay.instructions, { 'gemini-copy': oldInstruction });
+  assert.notEqual(publicPolicy.routes['gemini-copy'].instruction, oldInstruction);
+  // The kind descriptions were rewritten publicly after the fixture, for reasons other than names.
+  const rewritten = kinds.filter(kind => oldRaw.kinds[kind].description !== publicPolicy.kinds[kind].description);
+  assert.ok(rewritten.length >= 13, `${rewritten.length} kind descriptions differ`);
   assert.equal(overlay.kinds, undefined);
+  assert.deepEqual(skipped, []);
+  const { policy } = loadEffectivePolicy({ env: { HOME: '/unused' }, readFile: () => JSON.stringify(overlay) });
+  assert.deepEqual(policy, reference);
+});
+
+const dana = (old, current) => {
+  const oldPolicy = structuredClone(oldRaw);
+  const now = structuredClone(publicPolicy);
+  oldPolicy.routes['gemini-copy'].instruction = old;
+  now.routes['gemini-copy'].instruction = current;
+  return exportLocal(oldPolicy, now);
+};
+test('export-local exports only exact name-for-"the user" substitutions', () => {
+  // Same words in a different order and with repeats: not the same text, so never exported.
+  const mixed = dana('Ask Dana to review before release', 'Ask the user to release before review');
+  assert.equal(mixed.overlay.instructions, undefined);
+  assert.deepEqual(mixed.skipped, ['routes.gemini-copy.instruction']);
+  // A name change plus another edit is reported, not exported.
+  const edited = dana('Ask Dana to review before release today', 'Ask the user to review before release');
+  assert.equal(edited.overlay.instructions, undefined);
+  assert.deepEqual(edited.skipped, ['routes.gemini-copy.instruction']);
+  // Exact substitutions export: one name, a possessive, several names, a sentence-initial one.
+  for (const [old, current] of [
+    ['Ask Dana to review before release', 'Ask the user to review before release'],
+    ["Use Dana's budget. Ask Dana first.", "Use the user's budget. Ask the user first."],
+    ['Dana asks Lee Wong for sign-off.', 'The user asks the user for sign-off.'],
+  ]) {
+    const exact = dana(old, current);
+    assert.deepEqual(exact.overlay.instructions, { 'gemini-copy': old }, old);
+    assert.deepEqual(exact.skipped, []);
+  }
+  // A lowercase word is not a name; punctuation must match.
+  for (const [old, current] of [['Ask admin to review', 'Ask the user to review'], ['Ask Dana to review!', 'Ask the user to review.']]) {
+    assert.equal(dana(old, current).overlay.instructions, undefined, old);
+  }
+  // A rewrite with no "the user" in the public text is another public change, not a name: neither exported nor flagged.
+  const rewrite = exportLocal({ ...oldRaw, kinds: { ...oldRaw.kinds, docs: { ...oldRaw.kinds.docs, description: 'Docs for Dana.' } } }, publicPolicy);
+  assert.equal(rewrite.overlay.kinds, undefined);
+  assert.deepEqual(rewrite.skipped, []);
+});
+test('export-local also carries route notes and kind descriptions that named a person', () => {
+  const old = structuredClone(oldRaw);
+  const current = structuredClone(publicPolicy);
+  old.routes.luna.note = 'Ask Dana about quota.'; current.routes.luna.note = 'Ask the user about quota.';
+  old.kinds.docs.description = 'Docs that Dana reads.'; current.kinds.docs.description = 'Docs that the user reads.';
+  const { overlay } = exportLocal(old, current);
   assert.deepEqual(overlay.routes, { luna: { note: 'Ask Dana about quota.' } });
+  assert.deepEqual(overlay.kinds, { docs: { description: 'Docs that Dana reads.' } });
 });
 test('export-local needs a policy with repos and checks its own output', () => {
   assert.throws(() => exportLocal({}, publicPolicy), /repos object/);
-  const broken = structuredClone(oldPolicy);
+  const broken = structuredClone(oldRaw);
   broken.repos[repos[0]].rules[0].route = 'removed-route';
   assert.throws(() => exportLocal(broken, publicPolicy), /not valid against the current policy[\s\S]*unknown route id removed-route/);
-  const none = exportLocal({ repos: {} }, publicPolicy);
-  assert.deepEqual(none, { policyVersion: 1 });
+  assert.deepEqual(exportLocal({ repos: {} }, publicPolicy), { overlay: { policyVersion: 1 }, skipped: [] });
+});
+
+// ---- Equivalence through the real CLI ----
+
+const DECISION = ['route', 'provider', 'model', 'reasoning', 'machine', 'status', 'basis'];
+const MODES = ['plain', 'review', 'exhausted-quota'];
+const MACHINES = [undefined, ...machineIds(publicPolicy)];
+
+test('pick through the CLI gives the same decisions with the migrated overlay as with the reference policy', async t => {
+  const base = home(t);
+  const exhausted = normalizeQuota(JSON.parse(readFileSync(new URL('./fixtures/quota.json', import.meta.url), 'utf8')));
+  for (const pool of Object.values(exhausted)) for (const window of pool.windows) window.usedPercent = 100;
+  // A real overlay file under a temporary XDG_CONFIG_HOME, written from export-local's own output.
+  const config = join(base, 'config');
+  mkdirSync(join(config, 'model-routing'), { recursive: true });
+  writeFileSync(join(config, 'model-routing', 'policy.local.json'), JSON.stringify(exportLocal(oldRaw, publicPolicy).overlay));
+  const run = async (args, deps) => {
+    const out = [];
+    const code = await main(['pick', ...args, '--json'], { stdout: text => out.push(text), stderr: text => out.push(text),
+      loadOverride: () => null, now: '2026-10-04T15:35:00Z', cwd: base, ...deps });
+    const decision = JSON.parse(out.join(''));
+    return { code, ...Object.fromEntries(DECISION.map(key => [key, decision[key] ?? null])) };
+  };
+  let cases = 0;
+  for (const repo of [null, ...repos]) for (const kind of kinds) for (const machine of MACHINES) for (const failures of [0, 2]) {
+    for (const mode of MODES) {
+      const args = ['--kind', kind, '--failures', String(failures), ...(machine ? ['--machine', machine] : []),
+        ...(mode === 'review' ? ['--author', 'astra'] : []), ...(mode === 'exhausted-quota' ? [] : ['--no-quota'])];
+      const shared = { repoKey: () => repo, readQuota: () => mode === 'exhausted-quota' ? exhausted : null };
+      // No `loadPolicy` here: main() → runPick → loadEffectivePolicy reads the real overlay file.
+      const actual = await run(args, { ...shared, env: { HOME: base, XDG_CONFIG_HOME: config }, stateDir: join(base, `a${cases}`) });
+      const expected = await run(args, { ...shared, env: { HOME: base, XDG_CONFIG_HOME: join(base, 'none') },
+        loadPolicy: () => reference, stateDir: join(base, `e${cases}`) });
+      if (JSON.stringify(actual) !== JSON.stringify(expected)) assert.deepEqual(actual, expected, JSON.stringify({ repo, kind, machine, failures, mode }));
+      cases++;
+    }
+  }
+  assert.equal(cases, 6 * 23 * 3 * 2 * 3);
+  assert.equal(cases, 2484);
 });
 
 // ---- Precedence: repo file > local overlay > public policy ----
@@ -283,11 +356,22 @@ test('policy export-local prints the old repo rules and writes nothing', async t
   const result = await cli(t, ['policy', 'export-local', '--from', new URL('./fixtures/policy.pre-overlay.json', import.meta.url).pathname]);
   assert.equal(result.code, 0);
   const overlay = JSON.parse(result.out);
-  assert.deepEqual(overlay, exportLocal(oldPolicy, publicPolicy));
+  assert.deepEqual(overlay, exportLocal(oldRaw, publicPolicy).overlay);
   assert.deepEqual(validateOverlay(overlay, publicPolicy), { ok: true, errors: [] });
   assert.equal(result.err, 'exported 5 repos, 1 instructions\n');
   assert.equal(result.out.endsWith('}\n'), true);
   assert.throws(() => readFileSync(overlayPath({ HOME: result.dir })), { code: 'ENOENT' });
+});
+test('policy export-local reports name-bearing text that also changed, and does not export it', async t => {
+  const edited = structuredClone(oldRaw);
+  edited.routes['gemini-copy'].instruction = `${oldInstruction} Check the budget first.`;
+  const dir = home(t);
+  const from = join(dir, 'old.json');
+  writeFileSync(from, JSON.stringify(edited));
+  const result = await cli(t, ['policy', 'export-local', '--from', from]);
+  assert.equal(result.code, 0);
+  assert.equal(result.err, 'exported 5 repos\ndiffers for other reasons: routes.gemini-copy.instruction\n');
+  assert.equal(JSON.parse(result.out).instructions, undefined);
 });
 test('policy export-local and show reject bad usage with code 2', async t => {
   for (const args of [['policy'], ['policy', 'nope'], ['policy', 'show', 'extra'], ['policy', 'show', '--from', 'x.json'],

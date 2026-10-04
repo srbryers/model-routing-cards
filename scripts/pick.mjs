@@ -129,7 +129,7 @@ export function pick(input, deps) {
   let meteredFallback = false;
   // ⚠ Spending is only a response to exhausted subscriptions, never a way around
   // exclusions, machine restrictions, missing configuration or review independence.
-  // A route held back only by the Claude reserve is not exhausted: Sebastian decides.
+  // A route held back only by the Claude reserve is not exhausted: the user decides.
   const allLimited = subscriptionCandidates.length > 0
     && subscriptionCandidates.every(c => c.type !== 'external' && !['local', 'metered'].includes(c.pool) && limited.has(c.route))
     && resolved.blocked.every(b => /candidate superseded by/.test(b.why));

@@ -195,9 +195,10 @@ export async function runPolicy(args, deps = {}) {
   try { old = parseUniqueJson((deps.readFile ?? readFileSync)(file, 'utf8')); }
   catch (error) { throw new TypeError(`${file}: could not be read as a policy file (${error.code ?? error.message})`); }
   // ⚠ Export against the public policy only, so a local overlay already in place cannot leak into its own migration.
-  const overlay = exportLocal(old, loadPolicy());
+  const { overlay, skipped } = exportLocal(old, loadPolicy());
   const counts = Object.entries(overlay).filter(([key]) => key !== 'policyVersion').map(([key, value]) => `${Object.keys(value).length} ${key}`);
-  (deps.stderr ?? (text => process.stderr.write(text)))(`exported ${counts.join(', ') || 'nothing'}\n`);
+  (deps.stderr ?? (text => process.stderr.write(text)))(`exported ${counts.join(', ') || 'nothing'}\n`
+    + skipped.map(path => `differs for other reasons: ${path}\n`).join(''));
   stdout(JSON.stringify(overlay, null, 2) + '\n');
   return 0;
 }

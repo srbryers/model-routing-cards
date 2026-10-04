@@ -104,32 +104,42 @@ export function loadEffectivePolicy({ env = process.env, readFile = readFileSync
   return { policy: freeze(applyOverlay(base, overlay)), sources, effects: effects(overlay, base) };
 }
 
-const tokens = text => text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) ?? [];
+const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const NAME = String.raw`\p{Lu}[\p{L}\p{N}_-]*(?: \p{Lu}[\p{L}\p{N}_-]*){0,2}`;
+const USER = /the user/gi;
 
 /**
- * True when `oldText` differs from `newText` only by proper names that the public text
- * replaces with "the user". This is how the exporter finds text that named a person.
+ * True only when `oldText` is `newText` with each "the user" replaced by a capitalised
+ * name. Word order, punctuation and repeats must otherwise match exactly, so a
+ * rewrite that happens to share words with the public text is never exported.
  */
 function namesPerson(oldText, newText) {
-  if (oldText === newText) return false;
-  const before = tokens(oldText);
-  const after = tokens(newText);
-  const inBefore = new Set(before);
-  const inAfter = new Set(after);
-  const removed = before.filter(word => !inAfter.has(word));
-  const added = after.filter(word => !inBefore.has(word));
-  return removed.length > 0 && removed.every(word => /^\p{Lu}/u.test(word))
-    && added.every(word => ['the', 'user', "user's", 'user’s'].includes(word.toLowerCase()));
+  USER.lastIndex = 0;
+  if (oldText === newText || !USER.test(newText)) return false;
+  const pattern = newText.split(USER).map(escapeRegExp).join(`(?:${NAME})`);
+  return new RegExp(`^${pattern}$`, 'u').test(oldText);
+}
+
+/** The public text has a "the user" site and the old text has a capitalised word the public text lacks. */
+function maybeNamesPerson(oldText, newText) {
+  USER.lastIndex = 0;
+  if (!USER.test(newText)) return false;
+  const words = text => new Set(text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) ?? []);
+  const current = words(newText);
+  return [...words(oldText)].some(word => /^\p{Lu}/u.test(word) && !current.has(word));
 }
 
 /**
  * Build an overlay from an older policy file: all its repo entries, plus route notes,
  * kind descriptions and external instructions that named a person and now differ from
- * the current public policy. Pure; the caller prints the result.
+ * the current public policy. Pure; the caller prints the result. Returns
+ * `{ overlay, skipped }`: `skipped` lists fields that look like they named a person but
+ * also differ in other ways, so the user can check them by hand.
  */
 export function exportLocal(oldPolicy, currentPolicy) {
   if (!object(oldPolicy) || !object(oldPolicy.repos)) throw new TypeError('--from must be a routing policy file with a repos object');
   const overlay = { policyVersion: currentPolicy.policyVersion };
+  const skipped = [];
   if (Object.keys(oldPolicy.repos).length) overlay.repos = structuredClone(oldPolicy.repos);
   const text = (collection, field, target, wrap = value => value) => {
     for (const [id, old] of Object.entries(object(oldPolicy[collection]) ? oldPolicy[collection] : {})) {
@@ -137,6 +147,7 @@ export function exportLocal(oldPolicy, currentPolicy) {
       if (!current || !nonempty(old?.[field]) || !nonempty(current[field])) continue;
       if (collection === 'routes' && (old.type === 'external') !== (field === 'instruction')) continue;
       if (namesPerson(old[field], current[field])) (overlay[target] ??= {})[id] = wrap(old[field]);
+      else if (old[field] !== current[field] && maybeNamesPerson(old[field], current[field])) skipped.push(`${collection}.${id}.${field}`);
     }
   };
   text('routes', 'note', 'routes', note => ({ note }));
@@ -144,5 +155,5 @@ export function exportLocal(oldPolicy, currentPolicy) {
   text('routes', 'instruction', 'instructions');
   const result = validateOverlay(overlay, currentPolicy);
   if (!result.ok) throw new TypeError(`Exported overlay is not valid against the current policy:\n${result.errors.map(e => `  - ${e}`).join('\n')}`);
-  return overlay;
+  return { overlay, skipped };
 }

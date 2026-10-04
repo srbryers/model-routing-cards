@@ -152,7 +152,10 @@ Commands:
   files were loaded (`policy.json`, `policy.local.json`, `local.json`).
 - `model-routing policy export-local --from OLD.json` prints an overlay built from an
   older policy file: all its `repos`, plus any `routes` notes, `kinds` descriptions
-  and `instructions` that named a person where the current public text says "the user".
+  and `instructions` that named a person. It exports a text field only when the old
+  text equals the current public text with each "the user" replaced by a name; anything
+  else must match exactly. A field that looks name-bearing but also differs is not
+  exported; stderr lists it as `differs for other reasons: <field path>` to check by hand.
   It prints only; redirect it yourself: `model-routing policy export-local --from
   old.json > ~/.config/model-routing/policy.local.json`. It checks the result against
   the current policy before printing.
@@ -346,7 +349,7 @@ reorder an automatic paid fallback. Subscriptions always stay ahead of it.
 A repo/file rule may explicitly select a metered route, subject to the same
 eligibility checks. This is intended and is not governed by the ceiling. The
 95% ceiling controls only the automatic metered fallback. A repo rule that names
-a model no subscription offers (for example Prelude's `gemini-flash`) is a
+a model no subscription offers (for example `gemini-flash`) is a
 deliberate choice, so it is offered even while subscriptions have room. It still
 needs spend approval: the result is `needs_approval`.
 
