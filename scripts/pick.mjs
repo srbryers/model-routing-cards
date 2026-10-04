@@ -111,21 +111,36 @@ export function pick(input, deps) {
     why.push(`no allowed route for ${kind} on ${machine}`);
     return result;
   }
+  // ⚠ Apply a lone threshold to eligibility before repo priority or card evidence.
+  // The fallback may relax this preference, but never resurrect a reserved route.
+  for (const tier of new Set(candidates.map(c => c.tier))) {
+    const preferences = policy.quota.thresholds.filter(rule => rule.action === 'prefer-route'
+      && rule.tiers.includes(tier) && quota[rule.pool]?.[rule.window]?.used > rule.usedPercentAbove);
+    if (preferences.length > 1) {
+      notes.push('conflicting quota preferences ignored; choose by pace');
+      continue;
+    }
+    if (!preferences.length) continue;
+    const rule = preferences[0];
+    const losing = c => c.tier === tier && c.pool === rule.pool;
+    if (!candidates.some(losing)) continue;
+    const targetPool = policy.routes[rule.route].pool;
+    if (!candidates.some(c => c.tier === tier && c.pool === targetPool)) {
+      notes.push(`quota preference for ${rule.route} unavailable; no allowed ${targetPool} candidate, falling back to ${rule.pool}`);
+      continue;
+    }
+    const poolLabel = { claude: 'Claude', codex: 'Codex' }[rule.pool] ?? rule.pool;
+    const windowLabel = rule.window === 'five-hour' ? '5h' : rule.window;
+    const reason = `${poolLabel} ${windowLabel} ${quota[rule.pool][rule.window].used}% > ${rule.usedPercentAbove}`;
+    candidates = candidates.filter(c => !losing(c) || reject(c,
+      `${c.source === 'repo' || c.source === 'file' ? `repo rule on ${c.route}` : c.route} blocked by quota: ${reason}`));
+  }
   let selected = candidates[0];
   let basis = 'policy';
   let tied = false;
   const pair = policy.tieBreak.routes.map(id => candidates.find(c => c.route === id));
   const repoFirst = selected.source === 'repo' || selected.source === 'file';
-  const preferences = policy.quota.thresholds.filter(rule => rule.action === 'prefer-route'
-    && rule.tiers.includes(selected.tier) && quota[rule.pool]?.[rule.window]?.used > rule.usedPercentAbove);
-  const conflicting = new Set(preferences.map(rule => rule.route)).size > 1;
-  if (conflicting) notes.push('conflicting quota preferences ignored; choose by pace');
-  const preferred = !conflicting && preferences.length ? candidates.find(c => c.route === preferences[0].route) : undefined;
-  if (!repoFirst && preferred) {
-    selected = preferred;
-    why.push(`quota preference: ${preferences[0].pool} ${preferences[0].window} above ${preferences[0].usedPercentAbove}%; prefer ${preferred.route}`);
-  }
-  if (!repoFirst && !preferred && selected.tier === policy.tieBreak.tier && pair.every(Boolean)) {
+  if (!repoFirst && selected.tier === policy.tieBreak.tier && pair.every(Boolean)) {
     const heads = pair.map(c => quota[c.pool]?.[policy.tieBreak.window]?.headroom);
     if (heads.every(Number.isFinite)) {
       why.push(`${pair[0].route} weekly headroom ${heads[0].toFixed(2)} points; ${pair[1].route} weekly headroom ${heads[1].toFixed(2)} points`);

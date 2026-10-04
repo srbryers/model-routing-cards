@@ -17,7 +17,7 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `tiers` | Ordered routes, fallbacks and default reasoning for each paid tier. |
 | `kinds` | Fixed classifier labels, descriptions, tier, reasoning and explicit route order. `local` and `image` are outside paid tiers. `null` reasoning means no effort setting. |
 | `escalation` | Two failures at the current tier advance one tier: 1 → 2 at high, 2 → 3 at xhigh. Tier 3, local and image have no escalation step. |
-| `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, soft preferences and pool reservations. Reservations beat overrides. |
+| `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, tier preferences and pool reservations. A lone preference binds when its target pool is available; reservations always bind. |
 | `tieBreak` | Tier 2: repo rule, machine eligibility, weekly pace, then alternate Sonnet/Astra and label the choice `trial`. PC allows either. |
 | `review` | Review kinds require a different vendor from the author. |
 | `cards` | `byKind` maps kinds to card files. Fresh `CALIBRATED` winners may select an allowed candidate; measured cheaper results can break a pace tie. The 30-day limit matches `TRUST.STALE_DAYS`. |
@@ -155,7 +155,7 @@ classification; dispatch stays with the caller.
 | Budget | Call `assertJevBudget` before credentials and request. Default cap is $0.01. The serialized UTF-8 request byte count bounds input tokens for the reserve. Keep the 80,000-byte rejection. Key/configuration errors exit 2 before the network request. Log measured input cost; use null when response usage is unavailable. Oversized requests are rejected, never truncated. |
 | Machine | Explicit flag, then a sole allowed repo machine, then `machines.default` if allowed, otherwise the first allowed machine. Conflicts block. `default` is validated and never treated as a machine ID. |
 | Cooldown | Skip limited routes, then use the surviving policy candidates. `limit` defaults to the route's policy duration, otherwise five hours. |
-| Quota rules | Above 70% Claude session usage prefers Astra for tier 2; above 85% Codex weekly usage prefers Sonnet. If both trigger, discard both preferences and choose by pace, with a note. Repo/file rules outrank these soft preferences. Above 80% Claude session usage reserves Claude for tier 3 or main threads; this is the hard stop. |
+| Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. |
 | Pace | `elapsedPct = 100 * (now - (resetsAt - length)) / length`; headroom is elapsed minus used. Weekly length is seven days; session length is five hours. Require a `Z` or explicit UTC offset, clamp elapsed to 0–100, compare full precision and show both headrooms. Ignore windows with a `model` field; duplicate kinds use the highest used percentage. |
 | Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. A difference at or below the margin alternates Sonnet/Astra, starting with Sonnet. Missing weekly data also causes a labelled trial. PC uses the same rule. |
 | Missing quota | Failed reads or missing/invalid/expired windows are unknown, never zero usage. Notes say “quota unknown: hard stops not applied”; valid remaining windows still impose their stops. `--require-quota` blocks if any eligible paid worker candidate lacks complete pool quota. Muse has no readable quota, so it cannot pass this strict mode. External instructions need no worker quota. |
@@ -204,8 +204,8 @@ The decision log is also the alternation record: only logged `ok` decisions with
 updates; no lock is held during classification. Limits are atomically replaced in
 `limits.json`. The `.lock/owner.json` file records PID, timestamp and ownership
 token. A dead PID (`ESRCH`) or a lock older than 30 seconds permits reclamation.
-A fresh live owner is waited on, up to five seconds. Release uses forced removal
-and checks the token so a replaced owner cannot release the newer lock. Keep
+A fresh live owner is waited on, up to five seconds. Reclamation rechecks the owner immediately before removal. Release uses forced
+removal and checks the token so a replaced owner cannot release the newer lock. Keep
 locked operations short; the 30-second lease can expire even for a live owner.
 Unreadable log lines are skipped and counted in the decision notes. A truncated
 last line is separated before the next append.
