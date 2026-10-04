@@ -261,7 +261,7 @@ selected-model queries. Their levels remain unclaimed; adding a verified
 
 ## Metered routes
 
-The `metered` pool bills per token. Its Pi workers are currently Mac Studio only;
+The `metered` pool bills per token. Its Pi and acp-gemini workers are Mac Studio only;
 each route's `note` records that this is the only tested machine. They do not
 have readable subscription quota. Cooldowns still apply. Vendor identity stays
 independent of provider: `fw-gpt-oss-120b` is OpenAI and cannot review
@@ -269,7 +269,7 @@ OpenAI-authored work. Claude still requires its Claude provider and pool.
 
 | Field | Meaning |
 |---|---|
-| `costPer1M` | `{ "in": number or null, "out": number or null }`, USD per million input/output tokens. Numbers must be finite and nonnegative. Null means unknown, never free. Required on metered workers. |
+| `costPer1M` | `null` for wholly unknown prices, or `{ "in": number or null, "out": number or null }`, USD per million input/output tokens. Numbers must be finite and nonnegative. Null means unknown, never free. Required on metered workers. |
 | `requiresSpendApproval` | Must be true on metered workers. |
 | `disabled` | Optional nonempty reason. Resolver always drops the route and puts that reason in `blocked`. |
 | `quota.meteredFallback` | Ordered route IDs keyed by effective tier: tier 1 uses DeepSeek Flash then MiniMax; tier 2 uses Kimi then GLM; tier 3 must be empty. |
@@ -289,21 +289,43 @@ eligibility checks.
 
 Chosen metered workers return `status: "needs_approval"` and exit **5**, including
 `approval: { spawnArgv, costPer1M, route }` and `spawn: null`. The preview is for
-review, not dispatch. Re-run pick with `--spend-approved` to get an `ok` decision
-and runnable `spawn.argv`. This flag is blanket: it binds neither route nor price
-and also approves unknown (null) prices. Callers should pass it only for the
-specific decision Sebastian approved or whose task brief already grants the
-spend, then check the new route and costs. Every decision records `spendApproved`,
-including false. External routes keep
-`status: "external"` and their existing `requiresSpendApproval` behavior.
+review, not dispatch. Re-run pick with `--spend-approved <route>[,<route>...]` to
+get an `ok` decision and runnable `spawn.argv` only when the selected route is
+listed. A bare flag exits 2 and asks for the approved route. Unknown IDs and empty
+list entries are usage errors; surrounding spaces and duplicate IDs are normalized.
+A changed paid selection returns `needs_approval` again and explains which routes
+the approval covers. The decision log stores `approvedRoutes`, selected `route`
+and the `spendApproved` boolean. This changes the boolean flag from PR #12.
+Approval is not a price cap: null means unknown, not free. Pass only route IDs
+whose spend the user approved or whose task brief already grants it.
+External routes keep `status: "external"` and their existing approval behavior.
 Approval is a statement by the caller; pick does not dispatch or bill anything.
 
 Both OpenRouter Gemini routes are disabled because the account has about $0.21
 and calls return 402. A matching repo/file rule adds a prominent disabled-route
 note as well as an alternative rejection. Top up, verify and declare their
-supported reasoning, then remove their `disabled` fields. Prelude keeps
-its external Gemini routes and a note about the later Pi replacement. Gemini
-CLI no longer serves personal accounts, so no Gemini subscription route exists.
+supported reasoning, then remove their `disabled` fields. They remain behind the
+acp-gemini options; no Gemini subscription route is configured.
+
+`gemini-pro`, `gemini-flash` and `gemini-flash-lite` use `acp-gemini`, running
+Gemini CLI on Vertex AI and billing per token to a Google Cloud project. They use
+Google's native model IDs, vendor `google`, pool `metered`, Mac Studio only and
+`supportedReasoning: ["medium"]` (managed by the agent). Provider and native
+Gemini model identity must agree with that vendor/pool in both directions.
+External tools and OpenRouter-qualified models retain their separate providers.
+`costPer1M` is null because Vertex prices are unverified. Route notes give past
+OpenRouter Flash $0.75/$3.75 and Pro $2/$12 per million input/output tokens as a
+reference only, never as Vertex prices. Skip `auto` because its choice is unstable
+and `gemini-2.5-pro` because it is an older line.
+
+These are Gemini-specific choices, not general coding fallbacks; they are absent
+from `quota.meteredFallback`. A repo can route `visual-implementation` to
+`gemini-flash`; the global default remains tier-3 Opus. Prelude does this for
+narrowly scoped visual work, with Astra reasoning and directing. The unused
+external `gemini-visual` route was removed. Prelude copy stays on external
+`gemini-copy`, because its CLAUDE.md requires `scripts/content_draft.py`.
+The rule format supports one preferred route, so the optional `gemini-flash`
+drafting path is a note, not a second candidate: check CLAUDE.md first.
 
 ## Field evidence
 

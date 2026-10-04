@@ -29,6 +29,10 @@ export function quotaPace(snapshot, now) {
 /** Pure decision: no clocks, files, commands, credentials or state mutation. */
 export function pick(input, deps) {
   const { policy, override = null, repo = null, classifier, alternation = {}, limits = {}, cards = {}, localConfig = null, localConfigError = null } = deps;
+  const approvedRoutes = input.approvedRoutes ?? [];
+  if (!Array.isArray(approvedRoutes) || approvedRoutes.some(route => typeof route !== 'string' || !Object.hasOwn(policy.routes, route))) {
+    throw new TypeError('approvedRoutes must be a list of known route IDs');
+  }
   const now = new Date(deps.now).getTime();
   if (!Number.isFinite(now)) throw new TypeError('now must be a valid date');
   const quota = quotaPace(deps.quota, now);
@@ -43,7 +47,7 @@ export function pick(input, deps) {
     if (!notes.includes('quota unknown: hard stops not applied')) notes.unshift('quota unknown: hard stops not applied');
   };
   if (Object.entries(policy.pools).some(([pool, p]) => p.readable && missingQuota(pool))) warnQuota();
-  const result = { id: deps.id, at: new Date(now).toISOString(), status: 'ok', repo, why, alternatives, quota, notes, beforeSpawn: [], spendApproved: input.spendApproved === true };
+  const result = { id: deps.id, at: new Date(now).toISOString(), status: 'ok', repo, why, alternatives, quota, notes, beforeSpawn: [], approvedRoutes: [...new Set(approvedRoutes)], spendApproved: false };
   if (!input.kind && classifier) result.classifier = { confidence: classifier.confidence, top: classifier.top, costUsd: classifier.costUsd };
   const kind = input.kind ?? (classifier?.status === 'ok' ? classifier.kind : undefined);
   if (!kind) {
@@ -235,6 +239,11 @@ export function pick(input, deps) {
     }
     if (route.note && !notes.includes(route.note)) notes.push(route.note);
     if (route.requiresSpendApproval) {
+      // ⚠ A cooldown or policy change may choose a different paid route on retry.
+      result.spendApproved = result.approvedRoutes.includes(selected.route);
+      if (!result.spendApproved && result.approvedRoutes.length) {
+        why.push(`approval covers ${result.approvedRoutes.join(',')}; selected ${selected.route}`);
+      }
       Object.assign(result, { requiresSpendApproval: true, costPer1M: route.costPer1M,
         status: result.spendApproved ? 'ok' : 'needs_approval',
         ...(!result.spendApproved ? { spawn: null } : {}) });

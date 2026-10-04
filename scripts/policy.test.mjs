@@ -316,7 +316,7 @@ test('repoKey injects a local Git call with separate arguments and handles a mis
 
 test('external Prelude routes preserve instructions and approval flags without spawn fields', () => {
   const repo = 'srbryers/prelude-social-skills-coach';
-  for (const [kind, id] of [['user-facing-copy', 'gemini-copy'], ['visual-implementation', 'gemini-visual'], ['image-generation', 'openai-image']]) {
+  for (const [kind, id] of [['user-facing-copy', 'gemini-copy'], ['image-generation', 'openai-image']]) {
     const [candidate] = resolveCandidates(policy, kind, { repo, machine: 'pc' }).candidates;
     assert.equal(candidate.route, id);
     assert.equal(candidate.type, 'external');
@@ -571,7 +571,7 @@ test('repo routes remain marked escalated across multiple tier transitions', () 
 });
 
 test('metered route metadata and fallback tiers validate strictly', () => {
-  for (const cost of [null, [], {}, { in: -1, out: 1 }, { in: '0.3', out: 1 }, { in: 0, out: Infinity }, { in: 0, out: 1, extra: 2 }]) {
+  for (const cost of [[], {}, { in: -1, out: 1 }, { in: '0.3', out: 1 }, { in: 0, out: Infinity }, { in: 0, out: 1, extra: 2 }]) {
     const p = copy(); p.routes['fw-kimi-k3'].costPer1M = cost;
     invalid(validatePolicy(p), /costPer1M/);
   }
@@ -653,4 +653,46 @@ test('unlisted disabled metered models need a verified reasoning declaration bef
     p.routes[route].supportedReasoning = [];
     assert.equal(validatePolicy(p).ok, true);
   }
+});
+
+test('Vertex Gemini routes use stable models, agent-managed reasoning and unknown prices', () => {
+  for (const [id, model] of [['gemini-pro', 'gemini-3.1-pro-preview'], ['gemini-flash', 'gemini-3.8-flash'], ['gemini-flash-lite', 'gemini-3.5-flash-lite']]) {
+    const route = policy.routes[id];
+    assert.equal(route.provider, 'acp-gemini'); assert.equal(route.model, model);
+    assert.equal(route.vendor, 'google'); assert.equal(route.pool, 'metered');
+    assert.equal(route.requiresSpendApproval, true); assert.equal(route.costPer1M, null);
+    assert.deepEqual(route.machines, ['mac-studio']); assert.deepEqual(route.supportedReasoning, ['medium']);
+    assert.match(route.note, /reference only/);
+    const candidate = resolveCandidates(policy, 'architecture', { override: rule(id, ['architecture']) }).candidates[0];
+    assert.equal(candidate.reasoning, 'medium'); assert.equal(candidate.costPer1M, null);
+    assert.equal(candidate.requiresSpendApproval, true);
+    assert.ok(!Object.values(policy.quota.meteredFallback).flat().includes(id));
+  }
+  assert.ok(!Object.values(policy.routes).some(r => r.model === 'auto' || r.model === 'gemini-2.5-pro'));
+  for (const [native, fallback] of [['gemini-flash', 'or-gemini-flash'], ['gemini-pro', 'or-gemini-pro']]) {
+    assert.ok(Object.keys(policy.routes).indexOf(native) < Object.keys(policy.routes).indexOf(fallback));
+    assert.ok(policy.routes[fallback].disabled);
+  }
+});
+test('native Gemini identities agree with provider, pool and vendor in both directions', () => {
+  for (const [id, key, value] of [
+    ['gemini-flash', 'vendor', 'openai'], ['gemini-flash', 'pool', 'codex'],
+    ['gemini-flash', 'provider', 'pi'], ['fw-kimi-k3', 'provider', 'acp-gemini'],
+    ['fw-kimi-k3', 'model', 'gemini-3.8-flash'], ['gemini-flash', 'model', 'unrelated-model'],
+  ]) {
+    const p = copy(); p.routes[id][key] = value;
+    invalid(validatePolicy(p), /native Gemini models require/);
+  }
+});
+test('Prelude visual work uses Gemini while global visual work stays Opus and copy stays external', () => {
+  const repo = 'srbryers/prelude-social-skills-coach';
+  assert.equal(resolveCandidates(policy, 'visual-implementation').candidates[0].route, 'opus');
+  const visual = resolveCandidates(policy, 'visual-implementation', { repo });
+  assert.equal(visual.candidates[0].route, 'gemini-flash'); assert.match(visual.candidates[0].note, /Astra reasons and directs/);
+  const pc = resolveCandidates(policy, 'visual-implementation', { repo, machine: 'pc' });
+  assert.equal(pc.candidates[0].route, 'opus'); assert.ok(pc.blocked.some(b => b.route === 'gemini-flash'));
+  const copy = resolveCandidates(policy, 'user-facing-copy', { repo }).candidates[0];
+  assert.equal(copy.route, 'gemini-copy'); assert.equal(copy.type, 'external');
+  assert.match(copy.note, /gemini-flash.*content_draft.py.*CLAUDE.md/);
+  assert.equal(policy.routes['gemini-visual'], undefined);
 });

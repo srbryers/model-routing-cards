@@ -38,7 +38,7 @@ const USAGE = `usage: model-routing <command> [args]
 pick: --brief-file F | --brief TEXT, --kind K, --repo DIR, --machine ID,
       --failures N, --author ROUTE_OR_VENDOR, --main-thread, --project ID,
       --section ID, --title T, --prompt-file F, --execute, --no-quota,
-      --jev-limit-usd N (default 0.01), --cards-dir DIR, --require-quota, --spend-approved, --json
+      --jev-limit-usd N (default 0.01), --cards-dir DIR, --require-quota, --spend-approved ROUTE[,ROUTE...], --json
 limit: --hours N (default from policy, otherwise 5), --json
 record: --result pass|fail|partial|abandoned, --gate name=pass|fail (repeatable),
         --gates-file F.json, --failures-before N, --notes TEXT (max 500 characters),
@@ -69,7 +69,7 @@ const pickOptions = {
   author: { type: 'string' }, 'main-thread': { type: 'boolean' }, project: { type: 'string' },
   section: { type: 'string' }, title: { type: 'string' }, 'prompt-file': { type: 'string' },
   execute: { type: 'boolean' }, 'no-quota': { type: 'boolean' }, json: { type: 'boolean' },
-  'jev-limit-usd': { type: 'string' }, 'cards-dir': { type: 'string' }, 'require-quota': { type: 'boolean' }, 'spend-approved': { type: 'boolean' },
+  'jev-limit-usd': { type: 'string' }, 'cards-dir': { type: 'string' }, 'require-quota': { type: 'boolean' }, 'spend-approved': { type: 'string' },
 };
 function number(value, label, fallback, integer = false) {
   if (value === undefined) return fallback;
@@ -82,7 +82,7 @@ function number(value, label, fallback, integer = false) {
 function present(decision, json) {
   if (json) return JSON.stringify(decision, null, 2) + '\n';
   return `${decision.status}: ${decision.route ?? decision.reason ?? 'no route'}${decision.machine ? ` on ${decision.machine}` : ''}${decision.basis ? ` (${decision.basis})` : ''}\n`
-    + (decision.costPer1M ? `Cost per 1M tokens (USD): in ${decision.costPer1M.in ?? 'unknown'}, out ${decision.costPer1M.out ?? 'unknown'}; spend approved: ${decision.spendApproved}\n` : '')
+    + (Object.hasOwn(decision, 'costPer1M') ? `Cost per 1M tokens (USD): in ${decision.costPer1M?.in ?? 'unknown'}, out ${decision.costPer1M?.out ?? 'unknown'}; spend approved: ${decision.spendApproved}\n` : '')
     + decision.beforeSpawn.map(step => `before spawn: ${step}\n`).join('')
     + decision.notes.map(note => `! ${note}\n`).join('')
     + decision.why.map(reason => `- ${reason}\n`).join('')
@@ -93,7 +93,14 @@ function present(decision, json) {
 
 /** Inject commands, files, classifier and state location for entirely offline CLI tests. */
 export async function runPick(args, deps = {}) {
-  const { values: flags } = parseArgs({ args, options: pickOptions, allowPositionals: false });
+  let flags;
+  try { ({ values: flags } = parseArgs({ args, options: pickOptions, allowPositionals: false })); }
+  catch (error) {
+    if (error.code === 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE' && error.message.includes('--spend-approved')) {
+      throw new TypeError('--spend-approved: name the approved route (or comma-separated routes)');
+    }
+    throw error;
+  }
   const policy = (deps.loadPolicy ?? loadPolicy)();
   if (flags.brief !== undefined && flags['brief-file'] !== undefined) throw new TypeError('Use --brief or --brief-file, not both');
   for (const [flag, value] of Object.entries(flags)) if (typeof value === 'string' && !value.trim()) throw new TypeError(`--${flag} needs a nonempty value`);
@@ -101,6 +108,10 @@ export async function runPick(args, deps = {}) {
   if (flags.machine !== undefined && !machineIds(policy).includes(flags.machine)) throw new TypeError(`Unknown machine: ${flags.machine}`);
   if (flags.author !== undefined && !Object.hasOwn(policy.routes, flags.author)
     && !Object.values(policy.routes).some(route => route.vendor === flags.author)) throw new TypeError('Unknown author route or vendor');
+  const approvedRoutes = flags['spend-approved'] === undefined ? [] : [...new Set(flags['spend-approved'].split(',').map(route => route.trim()))];
+  if (approvedRoutes.some(route => !route || !Object.hasOwn(policy.routes, route))) {
+    throw new TypeError('--spend-approved: name the approved route; every entry must be a known route');
+  }
   const failures = number(flags.failures, '--failures', 0, true);
   const limitUsd = number(flags['jev-limit-usd'], '--jev-limit-usd', 0.01);
   const repoDir = resolve(flags.repo ?? deps.cwd ?? process.cwd());
@@ -109,7 +120,7 @@ export async function runPick(args, deps = {}) {
   const { error: localConfigError, ...localConfig } = (deps.loadLocalConfig ?? loadLocalConfig)(policy, { env: deps.env ?? process.env });
   const brief = flags['brief-file'] === undefined ? flags.brief : (deps.readFile ?? readFileSync)(resolve(flags['brief-file']), 'utf8');
   const input = { kind: flags.kind, execute: flags.execute, failures, machine: flags.machine,
-    spendApproved: flags['spend-approved'], requireQuota: flags['require-quota'], author: flags.author, mainThread: flags['main-thread'], project: flags.project,
+    approvedRoutes, requireQuota: flags['require-quota'], author: flags.author, mainThread: flags['main-thread'], project: flags.project,
     section: flags.section, title: flags.title, promptFile: flags['prompt-file'] };
   // ⚠ A local quota read is free; --execute authorizes classification only, never dispatch.
   const quota = flags['no-quota'] ? null : await (deps.readQuota ?? readQuota)();
