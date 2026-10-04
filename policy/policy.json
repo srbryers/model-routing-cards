@@ -424,7 +424,7 @@
     "bounded-build": {
       "tier": 1,
       "reasoning": "high",
-      "description": "One feature slice, endpoint or script from a clear brief.",
+      "description": "One new feature slice, endpoint or script from a clear brief, in one or two files.",
       "candidates": [
         "muse"
       ],
@@ -435,7 +435,7 @@
     "quick-edit": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Renames, scoped refactors, lint and type fixes.",
+      "description": "Renames, small scoped refactors, lint and type fixes. No new behavior.",
       "candidates": [
         "muse"
       ],
@@ -446,7 +446,7 @@
     "write-tests": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Tests for existing code.",
+      "description": "Adding or changing tests only. No product code changes. A task that also fixes product code is not this kind: it is a bug fix or multi-step coding.",
       "candidates": [
         "muse"
       ],
@@ -457,7 +457,7 @@
     "docs": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Docs, READMEs, AGENTS.md, changelogs and copy passes.",
+      "description": "Docs for developers: READMEs, AGENTS.md, code comments and changelogs. Not copy that product users read.",
       "candidates": [
         "muse"
       ],
@@ -468,7 +468,7 @@
     "scouting": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Read-only investigation: explain code, locate files, map a repo or summarize a PR.",
+      "description": "Read-only investigation: explain code, locate files, map a repo or summarize a PR. No changes.",
       "candidates": [
         "muse"
       ],
@@ -490,7 +490,7 @@
     "simple-bug-fix": {
       "tier": 1,
       "reasoning": "high",
-      "description": "Fix a bug with a clear reproduction.",
+      "description": "Fix a bug whose failure is known or has a clear reproduction. Includes adding a test for it and fixing the code it shows.",
       "candidates": [
         "muse"
       ],
@@ -501,7 +501,7 @@
     "multi-step-coding": {
       "tier": 2,
       "reasoning": "high",
-      "description": "A feature across several files or long-running coding work.",
+      "description": "A larger change across several files or long-running coding work. Includes adding tests and fixing the code they expose across several modules.",
       "candidates": [
         "sonnet",
         "astra",
@@ -512,7 +512,7 @@
     "migration": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Code migrations and larger refactors.",
+      "description": "Moving code to a new library, framework or data layout, and large refactors.",
       "candidates": [
         "sonnet",
         "astra",
@@ -523,7 +523,7 @@
     "hard-bug-fix": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Diagnose and fix a bug with no clear reproduction or an unknown cause.",
+      "description": "Diagnose and fix a bug with no clear reproduction or an unknown cause. Includes writing tests to find unknown bugs and fixing what they expose.",
       "candidates": [
         "sonnet",
         "astra",
@@ -534,7 +534,7 @@
     "ci-terminal": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Failing pipelines, build scripts and environment fixes.",
+      "description": "Failing pipelines, build scripts and environment fixes. Not bugs in product code.",
       "candidates": [
         "sonnet",
         "astra",
@@ -581,7 +581,7 @@
     "ui-visual": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "UI and visual work.",
+      "description": "UI and visual design or build where the design is not settled: new screens, layout, look and feel.",
       "candidates": [
         "opus"
       ],
@@ -590,7 +590,7 @@
     "ios": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "iOS work.",
+      "description": "Work inside an iOS app: Swift, Xcode, simulator, device and App Store problems.",
       "candidates": [
         "opus"
       ],
@@ -599,7 +599,7 @@
     "architecture": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "Architecture decisions.",
+      "description": "Choosing how a system is structured: boundaries, technologies and trade-offs. Not schema or API design.",
       "candidates": [
         "opus"
       ],
@@ -688,6 +688,7 @@
   },
   "quota": {
     "overridesBeatHardStops": false,
+    "ceilingPercent": 95,
     "thresholds": [
       {
         "pool": "claude",

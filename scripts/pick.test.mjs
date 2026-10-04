@@ -254,14 +254,14 @@ test('a lone preference falls back when its target pool is limited or excluded',
   const reverse = choose({}, { quota: changed(59, 90), limits: { sonnet: '2026-10-05' } });
   assert.equal(reverse.route, 'astra'); assert.match(reverse.notes.join(' '), /falling back to codex/);
 });
-test('exhausted subscriptions use metered without undoing the 80 percent reservation', () => {
-  for (const deps of [{ quota: changed(81), limits: { astra: '2026-10-05', sol: '2026-10-05' } },
-    { quota: changed(75), limits: { astra: '2026-10-05', sol: '2026-10-05', sonnet: '2026-10-05' } }]) {
-    const d = choose({}, deps);
-    assert.equal(d.status, 'needs_approval'); assert.equal(d.route, 'fw-kimi-k3');
-  }
+test('cooldowns on every subscription route offer metered; the 80 percent reserve alone never does', () => {
+  const d = choose({}, { quota: changed(75), limits: { astra: '2026-10-05', sol: '2026-10-05', sonnet: '2026-10-05' } });
+  assert.equal(d.status, 'needs_approval'); assert.equal(d.route, 'fw-kimi-k3');
+  // Sonnet is reserved, Astra and Sol are on cooldown: held back by the reserve, so Sebastian decides.
+  const held = choose({}, { quota: changed(81), limits: { astra: '2026-10-05', sol: '2026-10-05' } });
+  assert.equal(held.status, 'blocked'); assert.equal(held.route, undefined);
+  assert.match(held.why.join(' '), /held back only by the Claude reserve.*metered not offered/);
 });
-
 test('strict quota allows unreadable Muse and configured Pi, relying on cooldowns', () => {
   for (const [kind, route, pool] of [['quick-edit', 'muse', 'muse'], ['bulk-text', 'pi-local', 'local']]) {
     const d = choose({ kind, requireQuota: true });
@@ -527,3 +527,103 @@ test('Sol: a calibrated card naming Sol maps through its alias; a missing Sol ro
 test('Sol: --require-quota still blocks a trial when a compared pool is unreadable', () => {
   assert.equal(choose({ requireQuota: true }, { quota: { codex: quota.codex } }).status, 'blocked');
 });
+
+const FULL = '2026-10-05';
+const isMetered = d => policy.routes[d.route]?.pool === 'metered';
+
+test('ceiling: the policy sets 95 and validates it between 50 and 100', () => {
+  assert.equal(policy.quota.ceilingPercent, 95);
+  for (const value of [49.9, 100.1, '95', null, undefined]) {
+    const p = structuredClone(policy);
+    if (value === undefined) delete p.quota.ceilingPercent; else p.quota.ceilingPercent = value;
+    assert.equal(validatePolicy(p).ok, false, String(value));
+  }
+  for (const value of [50, 100]) {
+    const p = structuredClone(policy); p.quota.ceilingPercent = value;
+    assert.equal(validatePolicy(p).ok, true, String(value));
+  }
+});
+test('ceiling: Claude 5h at 75% and Codex weekly at 90% choose by pace, with no metered route', () => {
+  const d = choose({}, { quota: changed(75, 90) });
+  assert.equal(d.status, 'ok'); assert.equal(isMetered(d), false);
+  assert.match(d.notes.join(' '), /conflicting quota preferences ignored/);
+  assert.equal(d.route, 'sonnet'); assert.match(d.why.join(' '), /weekly headroom/);
+});
+test('ceiling: Codex weekly at 96% exhausts Codex and leaves Sonnet', () => {
+  const d = choose({}, { quota: changed(50, 96) });
+  assert.equal(d.status, 'ok'); assert.equal(d.route, 'sonnet');
+  for (const route of ['astra', 'sol']) {
+    assert.ok(d.alternatives.some(a => a.route === route && /codex weekly 96% ≥ 95% ceiling: pool exhausted/.test(a.rejected)), route);
+  }
+  assert.match(d.why.join(' '), /codex weekly 96% ≥ 95% ceiling: pool exhausted/);
+});
+test('ceiling: 95 is the line; 94.9 stays in use and any readable window counts', () => {
+  const near = choose({}, { quota: changed(50, 94.9, 20) });
+  assert.ok(['astra', 'sol', 'sonnet'].includes(near.route));
+  assert.equal(choose({}, { quota: changed(50, 95) }).route, 'sonnet');
+  // Claude weekly at 95% exhausts Claude even while its 5h window is low.
+  const weekly = choose({}, { quota: changed(10, 50, 95) });
+  assert.ok(['astra', 'sol'].includes(weekly.route));
+  assert.match(weekly.why.join(' '), /claude weekly 95% ≥ 95% ceiling/);
+});
+test('ceiling: both subscriptions at 96% offer metered for tier 1 and 2, and block tier 3', () => {
+  const q = changed(96, 96);
+  const two = choose({}, { quota: q });
+  assert.equal(two.status, 'needs_approval'); assert.equal(two.route, 'fw-kimi-k3');
+  assert.match(two.why.join(' '), /ceiling or cooldowns/);
+  const one = choose({ kind: 'quick-edit' }, { quota: changed(50, 96), limits: { muse: FULL } });
+  assert.equal(one.status, 'needs_approval'); assert.ok(isMetered(one));
+  const three = choose({ kind: 'architecture' }, { quota: q });
+  assert.equal(three.status, 'blocked'); assert.match(three.why.join(' '), /no allowed metered fallback for tier 3/);
+});
+test('ceiling: Claude reserved at 85% with Codex at 96% blocks tier 2 instead of offering metered', () => {
+  for (const input of [{}, { kind: 'migration' }, { kind: 'hard-bug-fix' }]) {
+    const d = choose(input, { quota: changed(85, 96) });
+    assert.equal(d.status, 'blocked', input.kind); assert.equal(d.route, undefined);
+    assert.ok(!d.alternatives.some(a => isMetered({ route: a.route }) && !/superseded|disabled/.test(a.rejected)));
+    assert.match(d.why.join(' '), /held back only by the Claude reserve/);
+    assert.match(d.why.join(' '), /codex weekly 96%/);
+  }
+  // A main thread may use the reserved Claude pool, so nothing is exhausted.
+  assert.equal(choose({ mainThread: true }, { quota: changed(85, 96) }).route, 'sonnet');
+});
+test('ceiling: Muse on cooldown with Luna\'s pool at 96% offers metered on tier 1', () => {
+  const d = choose({ kind: 'quick-edit' }, { quota: changed(50, 96), limits: { muse: FULL } });
+  assert.equal(d.status, 'needs_approval'); assert.equal(d.route, 'fw-deepseek-v4p1-flash');
+  assert.ok(d.alternatives.some(a => a.route === 'luna' && /ceiling: pool exhausted/.test(a.rejected)));
+  assert.ok(d.alternatives.some(a => a.route === 'muse' && /limit cooldown/.test(a.rejected)));
+  // Luna's pool at 96% alone leaves Muse, with no metered route.
+  assert.equal(choose({ kind: 'quick-edit' }, { quota: changed(50, 96) }).route, 'muse');
+});
+test('ceiling: it removes repo-rule routes and ignores bulk-text on the local pool', () => {
+  const d = choose({ kind: '3d-work' }, { repo: 'srbryers/flora-studio', quota: changed(50, 96) });
+  assert.equal(d.route, 'sonnet');
+  assert.ok(d.alternatives.some(a => a.route === 'astra' && /ceiling: pool exhausted/.test(a.rejected)));
+  assert.equal(choose({ kind: 'bulk-text' }, { quota: changed(99, 99) }).route, 'pi-local');
+});
+test('ceiling: exclusions, machine limits and repo rules still never trigger metered', () => {
+  const q = changed(96, 96);
+  for (const [input, deps] of [
+    [{ kind: 'quick-edit', machine: 'pc' }, { limits: { luna: FULL } }],
+    [{ kind: 'quick-edit' }, { repo: 'srbryers/ui-kit', limits: { luna: FULL } }],
+    [{ kind: 'first-pass-review', author: 'openai' }, { limits: { muse: FULL, luna: FULL } }],
+  ]) {
+    const d = choose(input, { quota: q, ...deps }); assert.equal(d.status, 'blocked', JSON.stringify(input));
+  }
+});
+test('ceiling: unknown or expired quota applies no ceiling', () => {
+  assert.notEqual(choose({}, { quota: null }).status, 'blocked');
+  const stale = changed(96, 96);
+  for (const pool of Object.values(stale)) for (const w of pool.windows) w.resetsAt = '2026-10-04T10:00:00Z';
+  assert.equal(choose({}, { quota: stale }).status, 'ok');
+});
+
+for (const kind of Object.keys(policy.kinds).filter(k => policy.kinds[k].tier === 2)) {
+  test(`both soft limits at once: ${kind} chooses by pace with a note, never blocked`, () => {
+    const d = choose({ kind }, { quota: changed(72, 88) });
+    assert.equal(d.status, 'ok'); assert.notEqual(d.status, 'blocked');
+    assert.ok(['sonnet', 'astra', 'sol'].includes(d.route)); assert.equal(isMetered(d), false);
+    assert.match(d.notes.join(' '), /conflicting quota preferences ignored; choose by pace/);
+    assert.match(d.why.join(' '), /weekly headroom/);
+  });
+}
