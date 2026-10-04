@@ -64,7 +64,7 @@ export function validatePolicy(policy) {
   const errors = [];
   const { check, fields, list, reasoning } = checks(errors);
   if (!fields(policy, 'policy', ['policyVersion', 'updated', 'routes', 'pools', 'tiers',
-    'kinds', 'escalation', 'quota', 'tieBreak', 'review', 'cards', 'machines', 'repos', 'classifier'])) return { ok: false, errors };
+    'kinds', 'escalation', 'quota', 'tieBreak', 'review', 'cards', 'machines', 'repos', 'classifier', 'fieldEvidence'])) return { ok: false, errors };
   check(policy.policyVersion === 1, `unsupported policyVersion: ${policy.policyVersion}`);
   check(typeof policy.updated === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(policy.updated)
     && !Number.isNaN(Date.parse(policy.updated))
@@ -292,6 +292,12 @@ export function validatePolicy(policy) {
     check(policy.cards.requireTrust === 'CALIBRATED', 'cards.requireTrust must be CALIBRATED');
     // ⚠ JSON needs a literal; validate against the trust gate so it cannot drift silently.
     check(policy.cards.maxAgeDays === TRUST.STALE_DAYS, `cards.maxAgeDays must match TRUST.STALE_DAYS (${TRUST.STALE_DAYS})`);
+  }
+  if (fields(policy.fieldEvidence, 'fieldEvidence', ['minOutcomesPerRoute', 'minRoutes'])) {
+    for (const [key, minimum] of [['minOutcomesPerRoute', 1], ['minRoutes', 2]]) {
+      check(Number.isSafeInteger(policy.fieldEvidence[key]) && policy.fieldEvidence[key] >= minimum,
+        `fieldEvidence.${key} must be an integer at least ${minimum}`);
+    }
   }
   if (fields(policy.classifier, 'classifier', ['minProbability', 'minMargin'])) {
     for (const [key, value] of Object.entries(policy.classifier)) {

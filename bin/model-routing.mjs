@@ -18,7 +18,7 @@ import { loadLocalConfig } from '../scripts/local-config.mjs';
 import { findCard } from '../scripts/cards.mjs';
 import { classify } from '../scripts/classify.mjs';
 import { readQuota, buildSpawn } from '../scripts/adapters/bb.mjs';
-import { stateDirectory, readState, logDecision, setLimit, withStateLock } from '../scripts/state.mjs';
+import { stateDirectory, readState, readStateLog, logDecision, setLimit, withStateLock } from '../scripts/state.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,13 +32,17 @@ const USAGE = `usage: model-routing <command> [args]
 
   pick [flags]            choose a worker; classification is dry without --execute
   limit <route> [--hours N] mark a route temporarily unavailable
+  record <decision-id>     record verified work (Jev is dry without --execute)
+  outcomes [--kind K] [--json] show field outcomes and bake-off readiness
 
 pick: --brief-file F | --brief TEXT, --kind K, --repo DIR, --machine ID,
       --failures N, --author ROUTE_OR_VENDOR, --main-thread, --project ID,
       --section ID, --title T, --prompt-file F, --execute, --no-quota,
       --jev-limit-usd N (default 0.01), --cards-dir DIR, --require-quota, --spend-approved, --json
 limit: --hours N (default from policy, otherwise 5), --json
-record is coming in a later release.
+record: --result pass|fail|partial|abandoned, --gate name=pass|fail (repeatable),
+        --gates-file F.json, --failures-before N, --notes TEXT (max 500 characters),
+        --brief-file F --result-file R --execute, --jev-limit-usd N (default 0.01)
 
 run and card behave exactly like \`node scripts/route.mjs run|card ...\`.
 Receipts are written beside the task file. Cards use that location or --out DIR.
@@ -48,6 +52,8 @@ Receipts are written beside the task file. Cards use that location or --out DIR.
 export const COMMANDS = {
   pick: runPick,
   limit: runLimit,
+  record: runRecord,
+  outcomes: runOutcomes,
   run: (args) => execRoute(['run', ...args]),
   card: (args) => execRoute(['card', ...args]),
 };
@@ -141,6 +147,59 @@ export async function runLimit(args, deps = {}) {
   const dir = deps.stateDir ?? stateDirectory();
   const result = await withStateLock(dir, () => setLimit(dir, route, hours, deps.now ?? new Date()));
   (deps.stdout ?? (text => process.stdout.write(text)))(JSON.stringify(result) + '\n');
+  return 0;
+}
+
+export async function runRecord(args, deps = {}) {
+  const { values: flags, positionals } = parseArgs({ args, allowPositionals: true, options: {
+    result: { type: 'string' }, gate: { type: 'string', multiple: true },
+    'gates-file': { type: 'string' }, 'failures-before': { type: 'string' }, notes: { type: 'string' },
+    'brief-file': { type: 'string' }, 'result-file': { type: 'string' },
+    execute: { type: 'boolean' }, 'jev-limit-usd': { type: 'string' },
+  } });
+  if (positionals.length !== 1 || !positionals[0].trim()) throw new TypeError('record needs one decision id');
+  // ⚠ Only record/outcomes load this module; routing and cards cannot consume field evidence.
+  const { recordOutcome, validateGates } = await import('../scripts/outcomes.mjs');
+  let gates = {};
+  if (flags['gates-file'] !== undefined) {
+    let parsed;
+    // ⚠ Parser diagnostics may include file contents; expose only a fixed message.
+    try { parsed = JSON.parse((deps.readFile ?? readFileSync)(resolve(flags['gates-file']), 'utf8')); }
+    catch { throw new TypeError('gates file is not valid JSON'); }
+    gates = validateGates(parsed);
+  }
+  for (const flag of flags.gate ?? []) {
+    const match = /^([a-zA-Z0-9_.-]+)=(pass|fail)$/.exec(flag);
+    if (!match) throw new TypeError('--gate must be name=pass or name=fail');
+    const [, name, value] = match;
+    if (Object.hasOwn(gates, name) && gates[name] !== value) throw new TypeError(`Conflicting results for gate ${name}`);
+    Object.defineProperty(gates, name, { value, enumerable: true, configurable: true });
+  }
+  const record = await recordOutcome({ decisionId: positionals[0], result: flags.result, gates,
+    failuresBefore: number(flags['failures-before'], '--failures-before', 0, true), notes: flags.notes,
+    execute: flags.execute, briefFile: flags['brief-file'], resultFile: flags['result-file'],
+    limitUsd: number(flags['jev-limit-usd'], '--jev-limit-usd', 0.01),
+  }, { ...deps, stateDir: deps.stateDir ?? stateDirectory() });
+  (deps.stdout ?? (text => process.stdout.write(text)))(JSON.stringify(record) + '\n');
+  return 0;
+}
+
+export async function runOutcomes(args, deps = {}) {
+  const { values } = parseArgs({ args, allowPositionals: false,
+    options: { kind: { type: 'string' }, json: { type: 'boolean' } } });
+  const policy = (deps.loadPolicy ?? loadPolicy)();
+  if (values.kind !== undefined && !Object.hasOwn(policy.kinds, values.kind)) throw new TypeError(`Unknown kind: ${values.kind}`);
+  const { summarizeOutcomes, formatOutcomes } = await import('../scripts/outcomes.mjs');
+  const dir = deps.stateDir ?? stateDirectory();
+  const summary = await withStateLock(dir, () => {
+    const decisions = readStateLog(dir, 'decisions.jsonl');
+    const outcomes = readStateLog(dir, 'outcomes.jsonl');
+    const summary = summarizeOutcomes(decisions.records, outcomes.records, policy, values.kind);
+    summary.unreadableLogLines.decisions += decisions.unreadableLogLines;
+    summary.unreadableLogLines.outcomes += outcomes.unreadableLogLines;
+    return summary;
+  });
+  (deps.stdout ?? (text => process.stdout.write(text)))(values.json ? JSON.stringify(summary, null, 2) + '\n' : formatOutcomes(summary));
   return 0;
 }
 
