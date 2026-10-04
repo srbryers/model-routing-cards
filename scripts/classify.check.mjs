@@ -48,6 +48,8 @@ export const CASES = [
     expect: ['architecture'] },
   { brief: 'Add a nullable `timezone` column to the `events` table, update the API response type and its zod schema, and write a migration.',
     expect: ['data-contract'] },
+  { brief: 'Design the orders API schema: fields, types, required vs optional, error shapes. Document the decision; no code yet.',
+    expect: ['data-contract'] },
   { brief: 'Rewrite the welcome message and the error text our users see in the app so they sound friendly.',
     expect: ['user-facing-copy'] },
   { brief: 'Review this diff for security problems before it merges to the production branch.',
