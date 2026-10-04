@@ -156,8 +156,14 @@ export async function runRecord(args, deps = {}) {
   if (positionals.length !== 1 || !positionals[0].trim()) throw new TypeError('record needs one decision id');
   // ⚠ Only record/outcomes load this module; routing and cards cannot consume field evidence.
   const { recordOutcome, validateGates } = await import('../scripts/outcomes.mjs');
-  const gates = flags['gates-file'] === undefined ? {} : validateGates(JSON.parse(
-    (deps.readFile ?? readFileSync)(resolve(flags['gates-file']), 'utf8')));
+  let gates = {};
+  if (flags['gates-file'] !== undefined) {
+    let parsed;
+    // ⚠ Parser diagnostics may include file contents; expose only a fixed message.
+    try { parsed = JSON.parse((deps.readFile ?? readFileSync)(resolve(flags['gates-file']), 'utf8')); }
+    catch { throw new TypeError('gates file is not valid JSON'); }
+    gates = validateGates(parsed);
+  }
   for (const flag of flags.gate ?? []) {
     const match = /^([a-zA-Z0-9_.-]+)=(pass|fail)$/.exec(flag);
     if (!match) throw new TypeError('--gate must be name=pass or name=fail');

@@ -437,3 +437,42 @@ test('record and outcomes use the last duplicate decision, including its metadat
   assert.equal(await main(['outcomes', '--json'], h), 0);
   assert.deepEqual(last(h).rows, []);
 });
+
+test('invalid gates JSON produces a fixed diagnostic without echoing file contents', async t => {
+  const h = harness(t); decision(h);
+  const path = join(h.stateDir, 'gates.json');
+  writeFileSync(path, 'PRIVATE GATE CONTENTS: not JSON');
+  assert.equal(await main([...record, '--gates-file', path], h), 2);
+  assert.equal(h.output.at(-1), 'gates file is not valid JSON\n');
+  assert.equal(existsSync(join(h.stateDir, 'outcomes.jsonl')), false);
+});
+
+for (const failure of ['missing', 'unreadable']) {
+  test(`${failure} result file produces a fixed diagnostic before budget or Jev`, async t => {
+    const h = harness(t, { budget: () => assert.fail('budget before result read') });
+    decision(h); const args = files(h); const resultPath = args[3];
+    if (failure === 'missing') rmSync(resultPath);
+    else h.readFile = (path, encoding) => {
+      if (path === resultPath) throw Object.assign(new Error('PRIVATE PATH AND ERROR DETAILS'), { code: 'EACCES' });
+      return readFileSync(path, encoding);
+    };
+    assert.equal(await main([...record, ...args, '--execute'], h), 2);
+    assert.equal(h.output.at(-1), 'result file is missing or unreadable\n');
+    assert.equal(existsSync(join(h.stateDir, 'outcomes.jsonl')), false);
+  });
+}
+
+test('non-OK Jev status refuses the record without reading or exposing the response body', async t => {
+  let requests = 0, bodyReads = 0;
+  const h = harness(t, { readKey: () => 'test', fetchImpl: async () => {
+    requests++;
+    return { ok: false, status: 429,
+      json: async () => { bodyReads++; return { private: resultText }; },
+      text: async () => { bodyReads++; return resultText; } };
+  } });
+  decision(h);
+  assert.equal(await main([...record, ...files(h), '--execute'], h), 2);
+  assert.equal(requests, 1); assert.equal(bodyReads, 0);
+  assert.equal(h.output.at(-1), 'Jev brief check failed; no outcome recorded\n');
+  assert.equal(existsSync(join(h.stateDir, 'outcomes.jsonl')), false);
+});

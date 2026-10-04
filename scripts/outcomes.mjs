@@ -84,8 +84,12 @@ export async function recordOutcome({ decisionId, result, gates = {}, failuresBe
     if (createHash('sha256').update(brief).digest('hex') !== decision.brief?.sha256) {
       throw new TypeError('Brief hash does not match the decision; no outcome recorded');
     }
+    let resultText;
+    // ⚠ File errors may disclose private paths; keep the CLI diagnostic fixed.
+    try { resultText = readFile(resultFile, 'utf8'); }
+    catch { throw new TypeError('result file is missing or unreadable'); }
     // ⚠ No state lock during a network request: other picks and records can proceed.
-    jev = await checkBrief(brief, readFile(resultFile, 'utf8'), limitUsd, jevDeps);
+    jev = await checkBrief(brief, resultText, limitUsd, jevDeps);
   }
   const record = { decisionId, at: new Date(now).toISOString(), kind: decision.kind,
     route: decision.route, basis: decision.basis, repo: decision.repo ?? null,
