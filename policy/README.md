@@ -17,11 +17,12 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `tiers` | Ordered routes, fallbacks and default reasoning for each paid tier. |
 | `kinds` | Fixed classifier labels, descriptions, tier, reasoning and explicit route order. `local` and `image` are outside paid tiers. `null` reasoning means no effort setting. |
 | `escalation` | Two failures at the current tier advance one tier: 1 → 2 at high, 2 → 3 at xhigh. Tier 3, local and image have no escalation step. |
-| `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown and emergency fallback. Hard stops beat overrides. |
+| `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, tier preferences and pool reservations. A lone preference binds when its target pool is available; reservations always bind. |
 | `tieBreak` | Tier 2: repo rule, machine eligibility, weekly pace, then alternate Sonnet/Astra and label the choice `trial`. PC allows either. |
 | `review` | Review kinds require a different vendor from the author. |
-| `cards` | Only fresh `CALIBRATED` winners may replace a candidate. Validation checks the 30-day literal against `TRUST.STALE_DAYS`. |
-| `machines` | Available machine IDs and their descriptions. |
+| `cards` | `byKind` maps kinds to card files. Fresh `CALIBRATED` winners may select an allowed candidate; measured cheaper results can break a pace tie. The 30-day limit matches `TRUST.STALE_DAYS`. |
+| `classifier` | `minProbability: 0.6` and `minMargin: 0.15` decide when Jev must defer. Both are validated from 0 to 1. |
+| `machines` | `default` names the preferred machine; other entries are machine IDs with descriptions. |
 | `repos` | Repo rules keyed by lowercase GitHub `owner/name`; each has `rules` and optional `machines`. |
 
 ## Change the policy
@@ -76,14 +77,14 @@ rule wins over a central rule for that kind; unmatched kinds keep central rules.
 An empty file does not erase central rules. Lower-priority routes remain as
 fallbacks. After two failures, repo/file routes remain first but are marked
 `escalated: true`, followed by the next-tier candidates minus excluded routes.
-Their effective tier becomes the escalated tier. PR 3 can therefore move beyond
-the failing preference. Tier 3 has no next tier. Reasoning defaults to the kind's
+Their effective tier becomes the escalated tier. `pick` skips escalated repo/file
+preferences, including at tier 3 where no higher tier exists. Tier 3 has no next tier. Reasoning defaults to the kind's
 effort (or escalated effort), capped by the route; an explicit effort above a cap
 is an error. Machine limits and Muse's skill-workflow exclusion still apply.
 
-⚠ A repo preference cannot create quota. PR 3 must report an override blocked by
-quota, try eligible fallbacks, then stop and report if none remain. Conflicting
-thresholds must never bounce between exhausted pools. Likewise, a review override
+⚠ A repo preference cannot create quota. `pick` reports an override blocked by
+quota, tries eligible fallbacks, then stops if none remain. Conflicting
+soft preferences are discarded in favor of pace; they do not block. Likewise, a review override
 cannot bypass the different-vendor rule; stop if no eligible reviewer remains.
 
 The central entries encode the supplied rules without reading other repos:
@@ -133,15 +134,89 @@ Prelude's product traffic (`model_config` behind `llm-proxy`) is out of scope, b
   blocked while its preferred occurrence remains a candidate. An empty candidate
   list always includes a blocked explanation. Inputs are never mutated.
 
-⚠ These are **candidates**, not dispatch decisions. PR 3 must check quota, liveness,
-review vendor and card trust, apply weekly pace and maintain alternation state.
-A fallback is usable only after earlier candidates are unavailable. Muse cooldown
-makes Luna eligible; Pi must pass its liveness check. Only `bulk-text` is declared
-suitable for emergency local fallback: Pi is a local 27B model. Its normal paid
-fallback uses medium effort.
-Image work names Codex image tooling; `pi-imagen` is a tool note, not an additional route; the policy has 11 routes.
+`resolveCandidates` also accepts `reviewFallbacks: true`. It appends the nearest
+tiers after the usual candidates, keeping the same repo exclusions and machine
+limits. `pick` requests this only when the author-vendor rule removes every
+candidate. Equal tier distances favor the higher tier. The task's effective tier
+still governs quota; reasoning comes from the fallback tier and route cap.
 
-External instructions are not executed here. PR 3 must present the instruction and
-respect `requiresSpendApproval`; it must not spawn the route or use a fallback
-to bypass required approval. The two added kinds separate product copy from
-quick edits, and settled visual implementation from broader UI work.
+## Pick decisions
+
+`pick(input, deps)` is pure. Policy, override, normalized repo key, quota, cards,
+classifier result, time, decision ID, alternation history and limits arrive through
+`deps`. The CLI reads them and logs the result. The worker adapter owns quota
+normalization and spawn argument construction. `--execute` enables only Jev
+classification; dispatch stays with the caller.
+
+| Decision | Rule |
+| --- | --- |
+| Kind | `--kind` wins. Otherwise one Jev Choice over `kindsForClassifier` plus `unknown`, with state `{ brief }`. The request shape follows the [TypeSafe Choice contract](https://docs.typesafe.ai/primitives/choice). |
+| Uncertainty | Unknown, malformed or unavailable answers return `needs_kind`. Retain up to three real kinds with valid probabilities; never invent probabilities for malformed responses. `confidence` retains Jev's confidence; thresholds use option probabilities. |
+| Budget | Call `assertJevBudget` before credentials and request. Default cap is $0.01. The serialized UTF-8 request byte count bounds input tokens for the reserve. Keep the 80,000-byte rejection. Key/configuration errors exit 2 before the network request. Log measured input cost; use null when response usage is unavailable. Oversized requests are rejected, never truncated. |
+| Machine | Explicit flag, then a sole allowed repo machine, then `machines.default` if allowed, otherwise the first allowed machine. Conflicts block. `default` is validated and never treated as a machine ID. |
+| Cooldown | Skip limited routes, then use the surviving policy candidates. `limit` defaults to the route's policy duration, otherwise five hours. |
+| Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. |
+| Pace | `elapsedPct = 100 * (now - (resetsAt - length)) / length`; headroom is elapsed minus used. Weekly length is seven days; session length is five hours. Require a `Z` or explicit UTC offset, clamp elapsed to 0–100, compare full precision and show both headrooms. Ignore windows with a `model` field; duplicate kinds use the highest used percentage. |
+| Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. A difference at or below the margin alternates Sonnet/Astra, starting with Sonnet. Missing weekly data also causes a labelled trial. PC uses the same rule. |
+| Missing quota | Failed reads or missing/invalid/expired windows are unknown, never zero usage. Notes say “quota unknown: hard stops not applied”; valid remaining windows still impose their stops. `--require-quota` blocks if any eligible paid worker candidate lacks complete pool quota. Muse has no readable quota, so it cannot pass this strict mode. External instructions need no worker quota. |
+| Review | Exclude the author's entire vendor. If every candidate is excluded, try the nearest different-vendor route with the same machine, exclusion, cooldown and quota checks. |
+| External | Return the instruction and spend-approval flag, with no spawn arguments. Worker cards cannot bypass an external instruction. |
+
+`cards.byKind` values are basenames such as `implementation.card.json`.
+Search `--cards-dir`, `MODEL_ROUTING_CARDS_DIR`, `<repo>/tasks/runs`, then
+`$XDG_DATA_HOME/model-routing/cards` (default `~/.local/share/model-routing/cards`).
+The first present file wins the lookup; if malformed, unreadable or for another
+task, ignore it with a reason rather than silently using a lower-priority file.
+The card's `task` must equal the basename minus `.card.json`.
+The installed package is not a card store. `card --out DIR` writes to a user store.
+Absent files are reported in `why`.
+The mapping is quick-edit → quick-edit, both bug-fix kinds → bug-fix, bounded-build
+and multi-step-coding → implementation, and all review kinds → review.
+
+Each worker route can declare unique `cardModels` aliases. These match the exact
+model IDs in task cards, including `meta/muse-spark-1.3`,
+`anthropic/claude-sonnet-5.5`, `anthropic/claude-opus-5.5` and the existing task slug
+`openai/gpt-6-luna` for the Luna route. Aliases are explicit policy mappings;
+changing a route model needs review of its aliases and existing measurements.
+DeepSeek has no worker route and therefore cannot select one.
+
+A card never displaces a repo/file rule. If the first allowed candidate comes
+from either source, `why` says “repo rule outranks card”. Otherwise cards may
+choose only candidates whose source is `tier` or `kind`, including a resolved
+fallback, and only when
+`CALIBRATED` and strictly younger than `cards.maxAgeDays`. Future dates, stale
+cards, `UNCALIBRATED`, `SINGLE_CANDIDATE` and disallowed winners are ignored with a
+reason. A fresh `NO_CLEAR_WINNER` may choose `card-cheaper` only within a pace tie,
+when both candidates have measured, comparable cost per accepted result and the
+recommended one costs less. Null subscription costs cannot break a tie.
+
+The redundant `quota.allLimited` section was removed. The explicit `bulk-text`
+candidates define its local choice; no candidates left means blocked. Pi is
+available only on Mac Studio. `pick` returns a plan and notes that the local server must be started
+and checked before dispatch. It does not run the liveness command or add network
+probes to a dry pick. Image work names Codex image tooling; `pi-imagen` is a tool
+note, not an additional worker route.
+
+## State
+
+The decision log is also the alternation record: only logged `ok` decisions with
+`basis: trial` advance that kind. A directory lock serializes pick/log and limit
+updates; no lock is held during classification. Limits are atomically replaced in
+`limits.json`. The `.lock/owner.json` file records PID, timestamp and ownership
+token. A dead PID (`ESRCH`) or a lock older than 30 seconds permits reclamation.
+A fresh live owner is waited on, up to five seconds. Reclamation rechecks the owner immediately before removal. Release uses forced
+removal and checks the token so a replaced owner cannot release the newer lock. Keep
+locked operations short; the 30-second lease can expire even for a live owner.
+Unreadable log lines are skipped and counted in the decision notes. A truncated
+last line is separated before the next append.
+
+State is under `MODEL_ROUTING_STATE_DIR`, otherwise
+`$XDG_STATE_HOME/model-routing`, otherwise `~/.local/state/model-routing`.
+The brief is logged as `{ sha256, length }`, where length is JavaScript string
+length (UTF-16 code units). Request/response bodies and credentials are never
+logged. Spawn argv is omitted from the disk log to avoid retaining titles,
+project/section IDs and prompt-file paths; stdout and `logDecision()`’s return
+value keep it. Existing state exports and argument lists are unchanged.
+`readState()` adds `unreadableLogLines` beside `alternation` and `limits`.
+Policy and card explanations remain in `why`; repo notes remain in
+`notes`; resolver exclusions remain in `alternatives`.

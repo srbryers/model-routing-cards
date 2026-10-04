@@ -42,6 +42,8 @@ function checks(errors) {
   return { check, fields, list, reasoning };
 }
 
+export const machineIds = policy => Object.keys(policy.machines).filter(id => id !== 'default');
+
 function capFor(id, route) {
   // ⚠ A renamed Sonnet route must not bypass its token-use cap.
   return sonnet(id, route) ? 'xhigh' : route?.maxReasoning;
@@ -60,7 +62,7 @@ export function validatePolicy(policy) {
   const errors = [];
   const { check, fields, list, reasoning } = checks(errors);
   if (!fields(policy, 'policy', ['policyVersion', 'updated', 'routes', 'pools', 'tiers',
-    'kinds', 'escalation', 'quota', 'tieBreak', 'review', 'cards', 'machines', 'repos'])) return { ok: false, errors };
+    'kinds', 'escalation', 'quota', 'tieBreak', 'review', 'cards', 'machines', 'repos', 'classifier'])) return { ok: false, errors };
   check(policy.policyVersion === 1, `unsupported policyVersion: ${policy.policyVersion}`);
   check(typeof policy.updated === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(policy.updated)
     && !Number.isNaN(Date.parse(policy.updated))
@@ -75,6 +77,8 @@ export function validatePolicy(policy) {
   const kinds = object(policy.kinds) ? policy.kinds : {};
   const tiers = object(policy.tiers) ? policy.tiers : {};
   const machines = object(policy.machines) ? policy.machines : {};
+  const machineNames = Object.keys(machines).filter(id => id !== 'default');
+  check(machineNames.includes(machines.default), 'machines.default must name a configured machine');
   const routeIds = Object.keys(routes);
   const routeList = (value, path, min = 0) => {
     const ids = list(value, path, routeIds, min);
@@ -86,6 +90,7 @@ export function validatePolicy(policy) {
   for (const id of ['muse', 'claude', 'codex', 'local']) check(has(pools, id), `pools.${id} is required`);
   for (const id of ['mac-studio', 'pc']) check(has(machines, id), `machines.${id} is required`);
   for (const [id, entry] of Object.entries(machines)) {
+    if (id === 'default') continue;
     if (fields(entry, `machines.${id}`, ['description'])) check(nonempty(entry.description), `machines.${id}.description is required`);
   }
   for (const [id, entry] of Object.entries(pools)) {
@@ -124,11 +129,11 @@ export function validatePolicy(policy) {
       continue;
     }
     if (!fields(route, path, ['provider', 'model', 'machines', 'pool', 'vendor'],
-      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck'])) continue;
+      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels'])) continue;
     check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
     check(nonempty(route.model), `${path}.model is required`);
-    list(route.machines, `${path}.machines`, Object.keys(machines), 1);
+    list(route.machines, `${path}.machines`, machineNames, 1);
     check(has(pools, route.pool), `${path}.pool: unknown pool ${route.pool}`);
     check(['anthropic', 'openai', 'meta', 'local', 'google'].includes(route.vendor), `${path}.vendor is unsupported`);
     const requiredProvider = route.pool === 'claude' ? 'claude-code' : pools[route.pool]?.requiredProvider;
@@ -138,6 +143,15 @@ export function validatePolicy(policy) {
     if (sonnet(id, route)) check(route.maxReasoning === 'xhigh', `${path}: Sonnet maxReasoning must be xhigh`);
     if (has(route, 'runningByDefault')) check(typeof route.runningByDefault === 'boolean', `${path}.runningByDefault must be boolean`);
     if (route.runningByDefault === false || has(route, 'livenessCheck')) check(nonempty(route.livenessCheck), `${path}.livenessCheck is required`);
+  }
+  const aliases = new Set();
+  for (const [id, route] of Object.entries(routes)) {
+    if (!has(route, 'cardModels')) continue;
+    check(Array.isArray(route.cardModels), `routes.${id}.cardModels must be an array`);
+    for (const alias of Array.isArray(route.cardModels) ? route.cardModels : []) {
+      check(nonempty(alias) && !aliases.has(alias), `routes.${id}.cardModels must contain unique nonempty aliases`);
+      aliases.add(alias);
+    }
   }
   const selection = (entry, path, nullable = false) => {
     const candidates = routeList(entry.candidates, `${path}.candidates`, 1);
@@ -202,7 +216,7 @@ export function validatePolicy(policy) {
     }
   }
   const quota = policy.quota;
-  if (fields(quota, 'quota', ['overridesBeatHardStops', 'thresholds', 'limitErrors', 'allLimited'])) {
+  if (fields(quota, 'quota', ['overridesBeatHardStops', 'thresholds', 'limitErrors'])) {
     check(quota.overridesBeatHardStops === false, 'quota.overridesBeatHardStops must be false');
     check(Array.isArray(quota.thresholds), 'quota.thresholds must be an array');
     for (const [i, rule] of (Array.isArray(quota.thresholds) ? quota.thresholds : []).entries()) {
@@ -225,15 +239,11 @@ export function validatePolicy(policy) {
       routeList([rule.route, rule.fallback], path);
       check(Number.isFinite(rule.cooldownHours) && rule.cooldownHours > 0, `${path}.cooldownHours must be positive`);
     }
-    if (fields(quota.allLimited, 'quota.allLimited', ['route', 'kinds', 'otherwise'])) {
-      routeList([quota.allLimited.route], 'quota.allLimited.route');
-      check(routes[quota.allLimited.route]?.pool === 'local', 'quota.allLimited.route must use the local pool');
-      list(quota.allLimited.kinds, 'quota.allLimited.kinds', KIND_IDS, 1);
-      check(quota.allLimited.otherwise === 'stop-and-report', 'quota.allLimited.otherwise must be stop-and-report');
-    }
   }
   const tie = policy.tieBreak;
-  if (fields(tie, 'tieBreak', ['tier', 'order', 'pcCandidates', 'tieBreak', 'window', 'onTie', 'routes', 'label'])) {
+  if (fields(tie, 'tieBreak', ['tier', 'order', 'pcCandidates', 'tieBreak', 'window', 'onTie', 'routes', 'label', 'marginPoints']))
+ {
+    check(Number.isFinite(tie.marginPoints) && tie.marginPoints >= 0 && tie.marginPoints <= 100, 'tieBreak.marginPoints must be between 0 and 100');
     check(tie.tier === 2, 'tieBreak.tier must be 2');
     check(JSON.stringify(tie.order) === JSON.stringify(['repo-override', 'machine', 'weekly-headroom', 'alternate']), 'tieBreak.order must be repo-override, machine, weekly-headroom, alternate');
     routeList(tie.pcCandidates, 'tieBreak.pcCandidates', 1);
@@ -247,10 +257,20 @@ export function validatePolicy(policy) {
     check(policy.review.differentVendor === true, 'review.differentVendor must be true');
     list(policy.review.kinds, 'review.kinds', KIND_IDS, 1);
   }
-  if (fields(policy.cards, 'cards', ['requireTrust', 'maxAgeDays'])) {
+  if (fields(policy.cards, 'cards', ['requireTrust', 'maxAgeDays', 'byKind'])) {
+    check(object(policy.cards.byKind), 'cards.byKind must be an object');
+    for (const [kind, file] of Object.entries(object(policy.cards.byKind) ? policy.cards.byKind : {})) {
+      check(has(kinds, kind), `cards.byKind: unknown kind ${kind}`);
+      check(typeof file === 'string' && /^[a-z0-9-]+\.card\.json$/.test(file), `cards.byKind.${kind} must name a <task-id>.card.json basename`);
+    }
     check(policy.cards.requireTrust === 'CALIBRATED', 'cards.requireTrust must be CALIBRATED');
     // ⚠ JSON needs a literal; validate against the trust gate so it cannot drift silently.
     check(policy.cards.maxAgeDays === TRUST.STALE_DAYS, `cards.maxAgeDays must match TRUST.STALE_DAYS (${TRUST.STALE_DAYS})`);
+  }
+  if (fields(policy.classifier, 'classifier', ['minProbability', 'minMargin'])) {
+    for (const [key, value] of Object.entries(policy.classifier)) {
+      check(Number.isFinite(value) && value >= 0 && value <= 1, `classifier.${key} must be between 0 and 1`);
+    }
   }
   check(object(policy.repos), 'repos must be an object keyed by owner/name');
   // ⚠ Reuse rule validation only after its route/kind dependencies are valid.
@@ -275,8 +295,8 @@ function validateRules(override, policy, versioned) {
   if (!fields(override, 'override', versioned ? ['policyVersion', 'rules'] : ['rules'], ['machines'])) return { ok: false, errors };
   if (versioned) check(override.policyVersion === policy.policyVersion, `unsupported policyVersion: ${override.policyVersion}`);
   const machines = has(override, 'machines')
-    ? list(override.machines, 'override.machines', Object.keys(policy.machines), 1)
-    : Object.keys(policy.machines);
+    ? list(override.machines, 'override.machines', machineIds(policy), 1)
+    : machineIds(policy);
   check(Array.isArray(override.rules), 'override.rules must be an array');
   const seen = new Set();
   for (const [i, rule] of (Array.isArray(override.rules) ? override.rules : []).entries()) {
@@ -419,11 +439,11 @@ export function kindsForClassifier(policy) {
 }
 
 /** Expand policy order only. PR 3 applies quota, liveness, vendor checks and card trust. */
-export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0 } = {}) {
+export function resolveCandidates(policy, kind, { repo = null, override = null, machine, failures = 0, reviewFallbacks = false } = {}) {
   assertValid(validatePolicy(policy), 'policy');
   if (!has(policy.kinds, kind)) throw new TypeError(`Unknown kind: ${kind}`);
   if (override !== null) assertValid(validateOverride(override, policy), 'override');
-  if (machine !== undefined && !has(policy.machines, machine)) throw new TypeError(`Unknown machine: ${machine}`);
+  if (machine !== undefined && !machineIds(policy).includes(machine)) throw new TypeError(`Unknown machine: ${machine}`);
   if (!Number.isInteger(failures) || failures < 0) throw new TypeError('failures must be a nonnegative integer');
   if (repo !== null) {
     repo = normalizeRepo(repo);
@@ -442,6 +462,17 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
     ...selection.fallbacks.map(route => ({ route, reasoning: selection.fallbackReasoning ?? level,
       reason: `${reason}; fallback`, fallback: true })),
   ].map(candidate => ({ ...candidate, source: step ? 'tier' : 'kind', escalated: !!step }));
+  // ⚠ Independent review may need the nearest tier; exclusions still pass through this resolver.
+  if (reviewFallbacks) {
+    const targetTier = step?.tier ?? entry.tier;
+    const nearest = Object.entries(policy.tiers).sort(([a], [b]) =>
+      Math.abs(Number(a) - targetTier) - Math.abs(Number(b) - targetTier) || Number(b) - Number(a));
+    for (const [tier, defaults] of nearest) {
+      for (const route of [...defaults.candidates, ...defaults.fallbacks]) {
+        proposed.push({ route, reasoning: defaults.reasoning, source: 'tier', fallback: true, escalated: thresholdReached, reason: `nearest different-vendor review route, tier ${tier}` });
+      }
+    }
+  }
   const excluded = new Set(entry.excludedRoutes ?? []);
   const notes = [];
   const blocked = [];
@@ -463,7 +494,7 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
         escalated: thresholdReached, fallback: false, reason: `${origin} ${rule.source}: ${rule.why}` });
     }
   }
-  const allowed = override?.machines ?? repoRules?.machines ?? Object.keys(policy.machines);
+  const allowed = override?.machines ?? repoRules?.machines ?? machineIds(policy);
   const note = [...new Set(notes)].join(' ');
   const seen = new Map();
   const candidates = [];

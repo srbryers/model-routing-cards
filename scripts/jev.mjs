@@ -34,7 +34,7 @@
  * rather than silently overflowing.
  */
 
-const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 
 /**
  * Published Jev 1.13 price and request ceiling, checked 2026-09-22.
@@ -60,14 +60,15 @@ export function jevInputCostUsd(usage = {}) {
  * Refuse a paid batch unless even its documented worst case fits the caller's
  * remaining authorization. Actual spend is calculated from response usage.
  */
-export function assertJevBudget({ limitUsd, spentUsd = 0, maxRequests = 1 }) {
-  for (const [name, value] of Object.entries({ limitUsd, spentUsd, maxRequests })) {
+export function assertJevBudget({ limitUsd, spentUsd = 0, maxRequests = 1, maxInputTokens = JEV_PRICING.maxInputTokensPerRequest }) {
+  for (const [name, value] of Object.entries({ limitUsd, spentUsd, maxRequests, maxInputTokens })) {
     if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number`);
   }
   if (!Number.isInteger(maxRequests)) throw new Error('maxRequests must be an integer');
 
+  if (!Number.isInteger(maxInputTokens)) throw new Error('maxInputTokens must be an integer');
   const reserveUsd = Number((
-    maxRequests * JEV_PRICING.maxInputTokensPerRequest / 1_000_000
+    maxRequests * maxInputTokens / 1_000_000
       * JEV_PRICING.inputUsdPerMillion
   ).toFixed(12));
   const remainingUsd = Number((limitUsd - spentUsd).toFixed(12));
@@ -138,7 +139,7 @@ export async function judge({ state, gates = {}, metrics = {}, threshold = GATE_
     throw new Error('judge() was given no gates and no metrics');
   }
 
-  const res = await fetch(ENDPOINT, {
+  const res = await fetch(JEV_ENDPOINT, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${readJevKey()}`,

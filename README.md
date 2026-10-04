@@ -48,6 +48,76 @@ model-routing card path/to/your-task.mjs
 
 `node scripts/route.mjs` still works unchanged.
 
+## Pick
+
+Main threads use `model-routing pick` when handing out agent work. It returns a
+provider, model, reasoning level, machine, reasons and exact spawn arguments.
+It does not spawn the worker.
+
+```sh
+model-routing pick --kind quick-edit --machine pc --no-quota --json
+```
+
+Output excerpt:
+
+```json
+{
+  "status": "ok",
+  "kind": "quick-edit",
+  "kindSource": "flag",
+  "route": "luna",
+  "provider": "codex",
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "machine": "pc",
+  "basis": "policy",
+  "quota": "unknown"
+}
+```
+
+Main threads pass **`--execute`** to classify `--brief "text"` or `--brief-file F`
+with Jev. With `--kind`, no model is called. Without `--execute`, a brief alone
+returns `needs_kind` with reason `dry`; no credential is read. The per-pick Jev
+cap is **$0.01**, adjustable with `--jev-limit-usd`.
+
+Quota is read by a local `bb` command; `--no-quota` skips it, and main threads
+should pass `--require-quota`. The command uses BB's own login, without a model
+call or this repo's credentials. Unknown quota adds **“quota unknown: hard stops
+not applied”** to the notes; `--require-quota` blocks the affected decision.
+Tier 2 uses weekly pace; ties alternate as `trial`, never a measured winner.
+Pass `--author ROUTE_OR_VENDOR` for an independent review. Use
+`model-routing limit muse --hours 5` after a worker hits its limit.
+
+`--project`, `--section`, `--title` and `--prompt-file` fill the spawn arguments;
+missing values appear in `spawn.missing`. `--repo` defaults to the current
+directory. `--failures` triggers escalation; `--main-thread` permits the reserved
+Claude pool under the policy. `--json` forces JSON; pipes get JSON automatically.
+Exit codes are **0** for a route or external instruction, **3** for `needs_kind`,
+**4** for blocked, and **2** for invalid input or a command error.
+
+Every decision is logged under `$XDG_STATE_HOME/model-routing/decisions.jsonl`
+(default `~/.local/state/model-routing`). `MODEL_ROUTING_STATE_DIR` overrides the
+whole directory. The brief is stored only as a SHA-256 hash and character length.
+The disk log omits spawn argv so titles, project/section IDs and prompt-file paths
+are not recorded. Stdout keeps the full spawn arguments.
+No routing state is written into the task repo. See [policy details](policy/README.md).
+
+`pick` finds cards by basename, such as `implementation.card.json`, in this order:
+
+1. `--cards-dir DIR`
+2. `MODEL_ROUTING_CARDS_DIR`
+3. The target repo's `tasks/runs` directory
+4. `$XDG_DATA_HOME/model-routing/cards` (default `~/.local/share/model-routing/cards`)
+
+To publish a card from existing receipts to that user directory, without a model call:
+
+```sh
+model-routing card /absolute/path/to/tasks/implementation.mjs --out "${XDG_DATA_HOME:-$HOME/.local/share}/model-routing/cards"
+```
+
+The default `card` output stays beside the task's receipts. The card's task ID must
+match its configured basename. Repo/file routing rules always outrank cards.
+
 ## Read That Card
 
 Gemini averaged **49% higher** than GPT-5.5. The card recommends Gemini, but not
@@ -159,7 +229,11 @@ killed after 10 minutes. A failed call records a category, never CLI output.
 
 Jev execution needs `TYPESAFE_API_KEY`. The adapter checks the process environment
 first, then an env file named by `TYPESAFE_ENV_FILE`, then the `envFile` path in
-the ignored `.jev.local.json` beside this README. For a key already stored by
+the ignored `.jev.local.json` beside this README, then
+`$XDG_CONFIG_HOME/model-routing/jev.local.json` (default
+`~/.config/model-routing/jev.local.json`). The XDG location works with global
+installs. Both config files hold an `envFile` path, never a copy of the key.
+For a key already stored by
 another project, create that local file once:
 
 ```json

@@ -1,0 +1,1 @@
+{"codex":{"status":"ok","windows":[{"label":"Weekly limit","usedPercent":19,"resetsAt":"2026-10-09T22:18:21.000Z","kind":"weekly"}]},"claude-code":{"status":"ok","windows":[{"label":"Current session","usedPercent":59,"resetsAt":"2026-10-04T20:40:00.494Z","kind":"five-hour"},{"label":"Weekly limit","usedPercent":33,"resetsAt":"2026-10-08T17:00:00.495Z","kind":"weekly"}]}}
