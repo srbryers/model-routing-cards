@@ -512,7 +512,7 @@
     "migration": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Moving code to a new API, framework, version or structure, and large refactors. Wins over multi-step-coding when the move is the main goal.",
+      "description": "Moving code to a new API, framework, version or structure, and large refactors. A database schema migration for one table is data-contract. Wins over multi-step-coding when the move is the main goal.",
       "candidates": [
         "sonnet",
         "astra",
@@ -599,7 +599,7 @@
     "architecture": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "Choosing how a system is structured: boundaries, technologies and trade-offs. Not schema or API design.",
+      "description": "Deciding how systems or components fit together, who owns what, and how they evolve. Includes decision records about integration, versioning and compatibility between components, even when a data format is part of the decision. A decision record about how systems or components fit together is architecture even with no code. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
       "candidates": [
         "opus"
       ],
@@ -617,7 +617,7 @@
     "data-contract": {
       "tier": 3,
       "reasoning": "high",
-      "description": "Design or change data contracts, schemas or API shapes. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
+      "description": "Designing or changing one specific schema, API shape or database contract, usually with code. Includes adding or changing database columns and writing their schema migrations. If the main output is a decision about structure across systems, it is architecture. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
       "candidates": [
         "opus"
       ],

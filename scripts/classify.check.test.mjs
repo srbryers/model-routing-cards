@@ -13,12 +13,15 @@ test('check list parses: briefs are unique, and every expected kind exists in th
     for (const kind of expect) assert.ok(Object.hasOwn(policy.kinds, kind), `unknown kind ${kind}`);
   }
 });
-test('check list pins the four ambiguous briefs to one kind each', () => {
+test('check list pins the seven ambiguous briefs to one kind each', () => {
   const kindFor = pattern => CASES.find(c => pattern.test(c.brief)).expect;
   assert.deepEqual(kindFor(/do not know why/), ['hard-bug-fix']);
   assert.deepEqual(kindFor(/one line/), ['simple-bug-fix']);
   assert.deepEqual(kindFor(/iOS app. Tests only/), ['write-tests']);
   assert.deepEqual(kindFor(/React Router 7/), ['migration']);
+  assert.deepEqual(kindFor(/request-path gateway/), ['architecture']);
+  assert.deepEqual(kindFor(/nullable `timezone` column/), ['data-contract']);
+  assert.deepEqual(kindFor(/no code yet/), ['data-contract']);
 });
 test('check list covers the live brief and at least 8 other kinds', () => {
   const live = CASES.find(c => /both soft thresholds triggering at once/.test(c.brief));
