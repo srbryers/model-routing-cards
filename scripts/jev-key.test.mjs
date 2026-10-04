@@ -54,3 +54,15 @@ test('XDG config defaults to home .config without depending on caller cwd', (t) 
   writeFileSync(join(config, 'fixture.env'), 'TYPESAFE_API_KEY=home-fixture');
   assert.equal(readJevKey({ env: { HOME: root }, configFile: join(root, 'missing.json') }), 'home-fixture');
 });
+
+test('bad key-store configuration reports safe errors without echoing contents', t => {
+  const root = mkdtempSync(join(tmpdir(), 'jev-invalid-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const configFile = join(root, 'config.json');
+  writeFileSync(configFile, '{"secret-fixture":not-json');
+  assert.throws(() => readJevKey({ env: {}, configFile }), error => {
+    assert.match(error.message, /could not be read as JSON/);
+    assert.ok(!error.message.includes('secret-fixture')); return true;
+  });
+  assert.throws(() => readJevKey({ env: { TYPESAFE_ENV_FILE: join(root, 'missing') }, configFile }), /envFile could not be read or parsed/);
+});

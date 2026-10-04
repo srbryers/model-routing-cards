@@ -1,4 +1,4 @@
-import { resolveCandidates } from './policy.mjs';
+import { resolveCandidates, machineIds } from './policy.mjs';
 
 const WINDOW_MS = { 'five-hour': 5 * 3_600_000, weekly: 7 * 86_400_000 };
 
@@ -7,13 +7,18 @@ export function quotaPace(snapshot, now) {
   const result = {};
   for (const [pool, { windows }] of Object.entries(snapshot)) {
     const values = {};
-    for (const { kind, usedPercent, resetsAt } of windows) {
+    for (const window of windows) {
+      if (Object.hasOwn(window, 'model')) continue;
+      const { kind, usedPercent, resetsAt } = window;
       const length = WINDOW_MS[kind];
       const reset = Date.parse(resetsAt);
-      if (!length || !Number.isFinite(reset) || !Number.isFinite(usedPercent)) continue;
+      if (!length || !Number.isFinite(reset) || !Number.isFinite(usedPercent)
+        || usedPercent < 0 || usedPercent > 100 || typeof resetsAt !== 'string'
+        || !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(resetsAt)) continue;
       // ⚠ Expired snapshots cannot reserve capacity or supply a pace comparison.
       if (reset <= now) continue;
-      const elapsed = 100 * (now - (reset - length)) / length;
+      if (values[kind] && values[kind].used >= usedPercent) continue;
+      const elapsed = Math.max(0, Math.min(100, 100 * (now - (reset - length)) / length));
       values[kind] = { used: usedPercent, elapsed, headroom: elapsed - usedPercent };
     }
     if (Object.keys(values).length) result[pool] = values;
@@ -30,6 +35,14 @@ export function pick(input, deps) {
   const why = [];
   const alternatives = [];
   const notes = [];
+  const missingQuota = pool => {
+    const windows = policy.pools[pool].windows;
+    return !windows.length || windows.some(window => !quota[pool]?.[window]);
+  };
+  const warnQuota = () => {
+    if (!notes.includes('quota unknown: hard stops not applied')) notes.unshift('quota unknown: hard stops not applied');
+  };
+  if (Object.entries(policy.pools).some(([pool, p]) => p.readable && missingQuota(pool))) warnQuota();
   const result = { id: deps.id, at: new Date(now).toISOString(), status: 'ok', repo, why, alternatives, quota, notes };
   if (!input.kind && classifier) result.classifier = { confidence: classifier.confidence, top: classifier.top, costUsd: classifier.costUsd };
   const kind = input.kind ?? (classifier?.status === 'ok' ? classifier.kind : undefined);
@@ -42,8 +55,8 @@ export function pick(input, deps) {
   }
   result.kind = kind;
   result.kindSource = input.kind ? 'flag' : 'jev';
-  const machines = override?.machines ?? policy.repos[repo]?.machines ?? Object.keys(policy.machines);
-  const machine = input.machine ?? (machines.length === 1 ? machines[0] : 'mac-studio');
+  const machines = override?.machines ?? policy.repos[repo]?.machines ?? machineIds(policy);
+  const machine = input.machine ?? (machines.length === 1 ? machines[0] : machines.includes(policy.machines.default) ? policy.machines.default : machines[0]);
   result.machine = machine;
   const options = { repo, override, machine, failures: input.failures ?? 0 };
   const resolved = resolveCandidates(policy, kind, options);
@@ -74,14 +87,22 @@ export function pick(input, deps) {
     || reject(c, 'escalated repo route skipped after repeated failures'));
   candidates = candidates.filter(c => !(Date.parse(limits[c.route]) > now)
     || reject(c, `limit cooldown until ${limits[c.route]}`));
+  const quotaCandidates = candidates[0]?.type === 'external' ? [] : candidates;
+  const unknownPools = [...new Set(quotaCandidates.filter(c => c.type !== 'external'
+    && !policy.pools[c.pool].free && missingQuota(c.pool)).map(c => c.pool))];
+  if (unknownPools.length) warnQuota();
+  if (input.requireQuota && unknownPools.length) {
+    result.status = 'blocked';
+    why.push(`quota unknown: hard stops not applied; required quota missing for ${unknownPools.join(', ')}`);
+    return result;
+  }
   candidates = candidates.filter(c => {
     for (const rule of policy.quota.thresholds) {
       const used = quota[rule.pool]?.[rule.window]?.used;
-      if (!(used > rule.usedPercentAbove) || c.pool !== rule.pool) continue;
-      const blocked = rule.action === 'reserve-pool'
-        ? !rule.allowedTiers.includes(c.tier) && !(rule.allowMainThreads && input.mainThread)
-        : rule.tiers.includes(c.tier);
-      if (blocked) return reject(c, `${c.source === 'repo' || c.source === 'file' ? 'repo override blocked: ' : ''}${rule.pool} ${rule.window} ${used}% > ${rule.usedPercentAbove}%${rule.action === 'prefer-route' ? `; prefer ${rule.route}` : '; reserved pool'}`);
+      if (rule.action !== 'reserve-pool' || !(used > rule.usedPercentAbove) || c.pool !== rule.pool) continue;
+      if (!rule.allowedTiers.includes(c.tier) && !(rule.allowMainThreads && input.mainThread)) {
+        return reject(c, `${c.source === 'repo' || c.source === 'file' ? 'repo override blocked: ' : ''}${rule.pool} ${rule.window} ${used}% > ${rule.usedPercentAbove}%; reserved pool`);
+      }
     }
     return true;
   });
@@ -95,7 +116,16 @@ export function pick(input, deps) {
   let tied = false;
   const pair = policy.tieBreak.routes.map(id => candidates.find(c => c.route === id));
   const repoFirst = selected.source === 'repo' || selected.source === 'file';
-  if (!repoFirst && selected.tier === policy.tieBreak.tier && pair.every(Boolean)) {
+  const preferences = policy.quota.thresholds.filter(rule => rule.action === 'prefer-route'
+    && rule.tiers.includes(selected.tier) && quota[rule.pool]?.[rule.window]?.used > rule.usedPercentAbove);
+  const conflicting = new Set(preferences.map(rule => rule.route)).size > 1;
+  if (conflicting) notes.push('conflicting quota preferences ignored; choose by pace');
+  const preferred = !conflicting && preferences.length ? candidates.find(c => c.route === preferences[0].route) : undefined;
+  if (!repoFirst && preferred) {
+    selected = preferred;
+    why.push(`quota preference: ${preferences[0].pool} ${preferences[0].window} above ${preferences[0].usedPercentAbove}%; prefer ${preferred.route}`);
+  }
+  if (!repoFirst && !preferred && selected.tier === policy.tieBreak.tier && pair.every(Boolean)) {
     const heads = pair.map(c => quota[c.pool]?.[policy.tieBreak.window]?.headroom);
     if (heads.every(Number.isFinite)) {
       why.push(`${pair[0].route} weekly headroom ${heads[0].toFixed(2)} points; ${pair[1].route} weekly headroom ${heads[1].toFixed(2)} points`);
@@ -115,11 +145,13 @@ export function pick(input, deps) {
   const card = cards[kind];
   if (!file) why.push(`no card mapped for ${kind}`);
   else if (!card) why.push(`no card file present: ${file}`);
+  else if (repoFirst) why.push('repo rule outranks card');
+  else if (card.task !== file.slice(0, -'.card.json'.length)) why.push(`card task mismatch: expected ${file.slice(0, -'.card.json'.length)}, ignored`);
   else if (selected.type === 'external') why.push('external instruction takes precedence over worker cards');
   else {
     const label = `card ${card.task ?? kind} ${card.trust ?? 'invalid'}`;
     const age = (now - Date.parse(card.generated)) / 86_400_000;
-    const winner = candidates.find(c => policy.routes[c.route].cardModels?.includes(card.recommend));
+    const winner = candidates.find(c => ['tier', 'kind'].includes(c.source) && policy.routes[c.route].cardModels?.includes(card.recommend));
     if (!Number.isFinite(age) || age < 0 || age >= policy.cards.maxAgeDays) why.push(`${label}, stale or invalid date, ignored`);
     else if (card.trust === 'CALIBRATED' && winner) {
       selected = winner; basis = 'card'; why.push(`${label}, fresh winner maps to allowed route ${winner.route}`);

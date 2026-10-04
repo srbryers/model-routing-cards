@@ -60,14 +60,15 @@ export function jevInputCostUsd(usage = {}) {
  * Refuse a paid batch unless even its documented worst case fits the caller's
  * remaining authorization. Actual spend is calculated from response usage.
  */
-export function assertJevBudget({ limitUsd, spentUsd = 0, maxRequests = 1 }) {
-  for (const [name, value] of Object.entries({ limitUsd, spentUsd, maxRequests })) {
+export function assertJevBudget({ limitUsd, spentUsd = 0, maxRequests = 1, maxInputTokens = JEV_PRICING.maxInputTokensPerRequest }) {
+  for (const [name, value] of Object.entries({ limitUsd, spentUsd, maxRequests, maxInputTokens })) {
     if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number`);
   }
   if (!Number.isInteger(maxRequests)) throw new Error('maxRequests must be an integer');
 
+  if (!Number.isInteger(maxInputTokens)) throw new Error('maxInputTokens must be an integer');
   const reserveUsd = Number((
-    maxRequests * JEV_PRICING.maxInputTokensPerRequest / 1_000_000
+    maxRequests * maxInputTokens / 1_000_000
       * JEV_PRICING.inputUsdPerMillion
   ).toFixed(12));
   const remainingUsd = Number((limitUsd - spentUsd).toFixed(12));

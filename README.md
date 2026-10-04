@@ -80,7 +80,10 @@ with Jev. With `--kind`, no model is called. Without `--execute`, a brief alone
 returns `needs_kind` with reason `dry`; no credential is read. The per-pick Jev
 cap is **$0.01**, adjustable with `--jev-limit-usd`.
 
-Quota is read locally by default, without a model call. `--no-quota` skips it.
+Quota is read through the local worker-host command using its own login, without
+a model call or this repo’s credentials. `--no-quota` skips it. Missing quota
+adds **“quota unknown: hard stops not applied”** to the notes. Main threads can
+pass `--require-quota` to block when an eligible worker pool has unknown quota.
 Tier 2 uses weekly pace; ties alternate as `trial`, never a measured winner.
 Pass `--author ROUTE_OR_VENDOR` for an independent review. Use
 `model-routing limit muse --hours 5` after a worker hits its limit.
@@ -95,7 +98,25 @@ Exit codes are **0** for a route or external instruction, **3** for `needs_kind`
 Every decision is logged under `$XDG_STATE_HOME/model-routing/decisions.jsonl`
 (default `~/.local/state/model-routing`). `MODEL_ROUTING_STATE_DIR` overrides the
 whole directory. The brief is stored only as a SHA-256 hash and character length.
+The disk log omits spawn argv so titles, project/section IDs and prompt-file paths
+are not recorded. Stdout keeps the full spawn arguments.
 No routing state is written into the task repo. See [policy details](policy/README.md).
+
+`pick` finds cards by basename, such as `implementation.card.json`, in this order:
+
+1. `--cards-dir DIR`
+2. `MODEL_ROUTING_CARDS_DIR`
+3. The target repo's `tasks/runs` directory
+4. `$XDG_DATA_HOME/model-routing/cards` (default `~/.local/share/model-routing/cards`)
+
+To publish a card from existing receipts to that user directory, without a model call:
+
+```sh
+model-routing card /absolute/path/to/tasks/implementation.mjs --out "${XDG_DATA_HOME:-$HOME/.local/share}/model-routing/cards"
+```
+
+The default `card` output stays beside the task's receipts. The card's task ID must
+match its configured basename. Repo/file routing rules always outrank cards.
 
 ## Record
 

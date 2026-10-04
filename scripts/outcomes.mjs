@@ -1,9 +1,9 @@
 /** ⚠ Different tasks went to different routes. Field outcomes can justify a
  * bake-off, but are confounded and must never become trust-gate receipts. */
-import { appendFileSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { readDecisions, withStateLock } from './state.mjs';
+import { readDecisions, appendStateLog, withStateLock } from './state.mjs';
 import { JEV_ENDPOINT, assertJevBudget, fitJevState, jevInputCostUsd } from './jev.mjs';
 import { readJevKey } from './jev-key.mjs';
 
@@ -23,11 +23,12 @@ async function checkBrief(brief, result, limitUsd, {
 }) {
   // ⚠ Approve the worst-case cost before reading a credential or sending text.
   budget({ limitUsd, maxRequests: 1 });
+  const key = readKey();
   let body;
   try {
     const response = await fetchImpl(JEV_ENDPOINT, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${readKey()}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'jev-latest', state: fitJevState({ brief, result }),
         questions: { metBrief: { type: 'noul', instructions: 'Does the result meet the brief?' } } }),
       signal: AbortSignal.timeout(30_000),
@@ -73,16 +74,9 @@ export async function recordOutcome({ decisionId, result, gates = {}, failuresBe
     route: decision.route, basis: decision.basis, repo: decision.repo ?? null,
     result, gates, failuresBefore, ...(jev ? { jev } : {}), notes };
   await withStateLock(stateDir, () => {
-    appendFileSync(join(stateDir, 'outcomes.jsonl'), JSON.stringify(record) + '\n', { mode: 0o600 });
+    appendStateLog(stateDir, 'outcomes.jsonl', record);
   });
   return record;
-}
-
-export function readOutcomes(dir) {
-  let text;
-  try { text = readFileSync(join(dir, 'outcomes.jsonl'), 'utf8'); }
-  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
-  return text.split('\n').filter(Boolean).map(JSON.parse);
 }
 
 const basisCounts = () => ({ trial: 0, policy: 0, card: 0, 'card-cheaper': 0 });
@@ -114,9 +108,9 @@ export function summarizeOutcomes(decisions, outcomes, policy, kind) {
     const qualifiedRoutes = rows.filter(row => row.kind === kind && row.recordedOutcomes >= minOutcomesPerRoute).map(row => row.route);
     const ready = qualifiedRoutes.length >= minRoutes;
     const card = policy.cards.byKind[kind] ?? null;
-    const task = card ? card.replace('tasks/runs/', 'tasks/').replace(/\.card\.json$/, '.mjs') : `tasks/${kind}.mjs`;
+    const task = `tasks/${card ? basename(card).replace(/\.card\.json$/, '.mjs') : `${kind}.mjs`}`;
     return { kind, ready, qualifiedRoutes, card, task,
-      nextStep: ready ? `Write or extend ${task} for ${kind}; ${card ? `check cards.byKind["${kind}"] maps to ${card}` : `map cards.byKind["${kind}"] to tasks/runs/${kind}.card.json`}; then run model-routing run ${task} --execute` : null };
+      nextStep: ready ? `Write or extend ${task} for ${kind}; ${card ? `check cards.byKind["${kind}"] maps to ${card}` : `map cards.byKind["${kind}"] to ${kind}.card.json`}; then run model-routing run ${task} --execute` : null };
   });
   return { label: FIELD_LABEL, thresholds: { minOutcomesPerRoute, minRoutes }, rows, readiness };
 }
@@ -128,6 +122,7 @@ export function formatOutcomes(summary) {
     r.pass, r.partial, r.fail, r.abandoned, split(r.decisionBasis), split(r.outcomeBasis)].map(String))];
   const widths = headers.map((_, i) => Math.max(...table.map(row => row[i].length)));
   return `${summary.label}\n${table.map(row => row.map((cell, i) => cell.padEnd(widths[i])).join('  ').trimEnd()).join('\n')}\n`
+    + Object.entries(summary.unreadableLogLines ?? {}).filter(([, count]) => count).map(([log, count]) => `Skipped ${count} unreadable ${log} log lines.\n`).join('')
     + 'Basis: T=trial, P=policy, C=card, CC=card-cheaper. Different tasks; counts do not establish route quality.\n'
     + (summary.readiness.length ? summary.readiness.map(r => `${r.kind}: ${r.ready ? 'ready for a bake-off' : 'not ready for a bake-off'} — ${r.qualifiedRoutes.length}/${summary.thresholds.minRoutes} routes with at least ${summary.thresholds.minOutcomesPerRoute} outcomes each.${r.nextStep ? `\nNext: ${r.nextStep}` : ''}\n`).join('') : 'No decisions recorded.\n');
 }

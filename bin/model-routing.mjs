@@ -12,11 +12,12 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import { loadPolicy, loadOverride, repoKey } from '../scripts/policy.mjs';
+import { loadPolicy, loadOverride, repoKey, machineIds } from '../scripts/policy.mjs';
 import { pick } from '../scripts/pick.mjs';
+import { findCard } from '../scripts/cards.mjs';
 import { classify } from '../scripts/classify.mjs';
 import { readQuota, buildSpawn } from '../scripts/adapters/bb.mjs';
-import { stateDirectory, readState, readDecisions, logDecision, setLimit, withStateLock } from '../scripts/state.mjs';
+import { stateDirectory, readState, readStateLog, logDecision, setLimit, withStateLock } from '../scripts/state.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -36,14 +37,14 @@ const USAGE = `usage: model-routing <command> [args]
 pick: --brief-file F | --brief TEXT, --kind K, --repo DIR, --machine ID,
       --failures N, --author ROUTE_OR_VENDOR, --main-thread, --project ID,
       --section ID, --title T, --prompt-file F, --execute, --no-quota,
-      --jev-limit-usd N (default 0.01), --json
+      --jev-limit-usd N (default 0.01), --cards-dir DIR, --require-quota, --json
 limit: --hours N (default from policy, otherwise 5), --json
 record: --result pass|fail|partial|abandoned, --gate name=pass|fail (repeatable),
         --gates-file F.json, --failures-before N, --notes TEXT (max 500 characters),
         --brief-file F --result-file R --execute, --jev-limit-usd N (default 0.01)
 
 run and card behave exactly like \`node scripts/route.mjs run|card ...\`.
-Receipts and cards are written beside the task file, never inside the install.
+Receipts are written beside the task file. Cards use that location or --out DIR.
 `;
 
 /* ⚠ Keep command dispatch in one table so installed and direct use agree. */
@@ -67,7 +68,7 @@ const pickOptions = {
   author: { type: 'string' }, 'main-thread': { type: 'boolean' }, project: { type: 'string' },
   section: { type: 'string' }, title: { type: 'string' }, 'prompt-file': { type: 'string' },
   execute: { type: 'boolean' }, 'no-quota': { type: 'boolean' }, json: { type: 'boolean' },
-  'jev-limit-usd': { type: 'string' },
+  'jev-limit-usd': { type: 'string' }, 'cards-dir': { type: 'string' }, 'require-quota': { type: 'boolean' },
 };
 function number(value, label, fallback, integer = false) {
   if (value === undefined) return fallback;
@@ -80,6 +81,7 @@ function number(value, label, fallback, integer = false) {
 function present(decision, json) {
   if (json) return JSON.stringify(decision, null, 2) + '\n';
   return `${decision.status}: ${decision.route ?? decision.reason ?? 'no route'}${decision.machine ? ` on ${decision.machine}` : ''}${decision.basis ? ` (${decision.basis})` : ''}\n`
+    + decision.notes.map(note => `! ${note}\n`).join('')
     + decision.why.map(reason => `- ${reason}\n`).join('')
     + (decision.instruction ? `${decision.instruction}\nSpend approval required: ${decision.requiresSpendApproval}\n` : '')
     + (decision.spawn ? `spawn: ${JSON.stringify(decision.spawn.argv)}\nmissing: ${decision.spawn.missing.join(', ') || 'none'}\n` : '');
@@ -92,7 +94,7 @@ export async function runPick(args, deps = {}) {
   if (flags.brief !== undefined && flags['brief-file'] !== undefined) throw new TypeError('Use --brief or --brief-file, not both');
   for (const [flag, value] of Object.entries(flags)) if (typeof value === 'string' && !value.trim()) throw new TypeError(`--${flag} needs a nonempty value`);
   if (flags.kind !== undefined && !Object.hasOwn(policy.kinds, flags.kind)) throw new TypeError(`Unknown kind: ${flags.kind}`);
-  if (flags.machine !== undefined && !Object.hasOwn(policy.machines, flags.machine)) throw new TypeError(`Unknown machine: ${flags.machine}`);
+  if (flags.machine !== undefined && !machineIds(policy).includes(flags.machine)) throw new TypeError(`Unknown machine: ${flags.machine}`);
   if (flags.author !== undefined && !Object.hasOwn(policy.routes, flags.author)
     && !Object.values(policy.routes).some(route => route.vendor === flags.author)) throw new TypeError('Unknown author route or vendor');
   const failures = number(flags.failures, '--failures', 0, true);
@@ -102,7 +104,7 @@ export async function runPick(args, deps = {}) {
   const override = (deps.loadOverride ?? loadOverride)(repoDir);
   const brief = flags['brief-file'] === undefined ? flags.brief : (deps.readFile ?? readFileSync)(resolve(flags['brief-file']), 'utf8');
   const input = { kind: flags.kind, execute: flags.execute, failures, machine: flags.machine,
-    author: flags.author, mainThread: flags['main-thread'], project: flags.project,
+    requireQuota: flags['require-quota'], author: flags.author, mainThread: flags['main-thread'], project: flags.project,
     section: flags.section, title: flags.title, promptFile: flags['prompt-file'] };
   // ⚠ A local quota read is free; --execute authorizes classification only, never dispatch.
   const quota = flags['no-quota'] ? null : await (deps.readQuota ?? readQuota)();
@@ -112,18 +114,17 @@ export async function runPick(args, deps = {}) {
   const cards = {};
   const kind = flags.kind ?? classifier?.kind;
   const cardFile = policy.cards.byKind[kind];
-  let cardError;
-  if (cardFile) {
-    try { cards[kind] = JSON.parse((deps.readFile ?? readFileSync)(resolve(here, '..', cardFile), 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') cardError = `card ${kind} unreadable or malformed, ignored`; }
-  }
+  const found = cardFile ? findCard(cardFile, { cardsDir: flags['cards-dir'], repoDir,
+    env: deps.env ?? process.env, readFile: deps.readFile ?? readFileSync }) : { why: [] };
+  if (found.card) cards[kind] = found.card;
   const dir = deps.stateDir ?? stateDirectory();
   const decision = await withStateLock(dir, () => {
     const now = deps.now ?? new Date();
     const state = readState(dir);
     const decision = pick(input, { policy, repo, override, quota, classifier, cards, ...state, now,
       id: `dec_${new Date(now).getTime()}_${randomUUID().slice(0, 8)}` });
-    if (cardError) decision.why.push(cardError);
+    decision.why.push(...found.why);
+    if (state.unreadableLogLines) decision.notes.push(`skipped ${state.unreadableLogLines} unreadable log lines`);
     const spawn = buildSpawn(decision, input);
     if (spawn) decision.spawn = spawn;
     return logDecision(dir, decision, brief);
@@ -178,9 +179,14 @@ export async function runOutcomes(args, deps = {}) {
     options: { kind: { type: 'string' }, json: { type: 'boolean' } } });
   const policy = (deps.loadPolicy ?? loadPolicy)();
   if (values.kind !== undefined && !Object.hasOwn(policy.kinds, values.kind)) throw new TypeError(`Unknown kind: ${values.kind}`);
-  const { readOutcomes, summarizeOutcomes, formatOutcomes } = await import('../scripts/outcomes.mjs');
+  const { summarizeOutcomes, formatOutcomes } = await import('../scripts/outcomes.mjs');
   const dir = deps.stateDir ?? stateDirectory();
-  const summary = await withStateLock(dir, () => summarizeOutcomes(readDecisions(dir), readOutcomes(dir), policy, values.kind));
+  const summary = await withStateLock(dir, () => {
+    const decisions = readStateLog(dir, 'decisions.jsonl');
+    const outcomes = readStateLog(dir, 'outcomes.jsonl');
+    return { ...summarizeOutcomes(decisions.records, outcomes.records, policy, values.kind),
+      unreadableLogLines: { decisions: decisions.unreadableLogLines, outcomes: outcomes.unreadableLogLines } };
+  });
   (deps.stdout ?? (text => process.stdout.write(text)))(values.json ? JSON.stringify(summary, null, 2) + '\n' : formatOutcomes(summary));
   return 0;
 }

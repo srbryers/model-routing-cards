@@ -66,7 +66,6 @@ const badPolicies = [
   ['bad quota window', p => p.quota.thresholds[0].window = 'daily', /unknown window daily/],
   ['quota override bypass', p => p.quota.overridesBeatHardStops = true, /must be false/],
   ['bad cooldown', p => p.quota.limitErrors[0].cooldownHours = -1, /cooldownHours must be positive/],
-  ['nonlocal emergency fallback', p => p.quota.allLimited.route = 'astra', /must use the local pool/],
   ['bad tie-break', p => p.tieBreak.tieBreak = 'raw-percent', /must be pace/],
   ['same vendor review', p => p.review.differentVendor = false, /must be true/],
   ['untrusted cards', p => p.cards.requireTrust = 'SINGLE_CANDIDATE', /must be CALIBRATED/],

@@ -80,7 +80,7 @@ function devVar(name, dir) {
 const sha = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);
 
 if (!cmd || !taskPath) {
-  console.error('usage: route.mjs run|card <task.mjs> [--runs N] [--execute]');
+  console.error('usage: route.mjs run|card <task.mjs> [--runs N] [--execute] [--out DIR (card only)]');
   process.exit(1);
 }
 
@@ -255,7 +255,10 @@ if (cmd === 'card') {
   const rows = card.models;
   const { trust: status, recommend, why, notes } = card;
 
-  const out = resolve(taskDir, 'runs', `${task.id}.card.json`);
+  if (has('out') && (!flag('out') || flag('out').startsWith('--'))) throw new Error('--out needs a directory');
+  const outputDir = resolve(flag('out', resolve(taskDir, 'runs')));
+  mkdirSync(outputDir, { recursive: true });
+  const out = resolve(outputDir, `${task.id}.card.json`);
   writeFileSync(out, JSON.stringify(card, null, 2) + '\n');
 
   console.log(`\n=== routing card — ${task.id} ===`);

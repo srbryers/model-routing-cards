@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadPolicy, validatePolicy } from './policy.mjs';
-import { pick } from './pick.mjs';
+import { pick, quotaPace } from './pick.mjs';
 import { normalizeQuota, readQuota, buildSpawn } from './adapters/bb.mjs';
 const policy = loadPolicy();
 const now = '2026-10-04T15:35:00Z';
@@ -44,12 +44,13 @@ test('PC uses the same pace rule; missing quota is explicitly an unknown trial',
   assert.equal(choose({ machine: 'pc' }, { quota: changed(59, 19, 20) }).route, 'sonnet');
   const d = choose({}, { quota: null }); assert.equal(d.quota, 'unknown'); assert.equal(d.basis, 'trial');
 });
-test('hard thresholds are strict and conflicting pools block', () => {
+test('soft thresholds are strict and conflicting preferences fall back to pace', () => {
   assert.equal(choose({}, { quota: changed(70, 85, 20) }).route, 'sonnet');
   assert.equal(choose({}, { quota: changed(70.01) }).route, 'astra');
   assert.equal(choose({}, { quota: changed(59, 85.01) }).route, 'sonnet');
-  const d = choose({}, { quota: changed(71, 86) }); assert.equal(d.status, 'blocked');
-  assert.equal(d.alternatives.length, 2);
+  const d = choose({}, { quota: changed(71, 86) }); assert.equal(d.status, 'ok');
+  assert.equal(d.route, 'sonnet'); assert.equal(d.basis, 'policy');
+  assert.match(d.notes.join(' '), /conflicting quota preferences ignored/);
 });
 test('Claude over 80% is reserved for tier 3 or main threads', () => {
   assert.equal(choose({ kind: 'architecture' }, { quota: changed(81) }).route, 'opus');
@@ -59,8 +60,8 @@ test('Claude over 80% is reserved for tier 3 or main threads', () => {
   assert.equal(choose({ kind: 'quick-edit' }, { override: override('sonnet'), quota: changed(80) }).route, 'sonnet');
 });
 test('blocked repo preference is explained and falls back', () => {
-  const d = choose({ kind: '3d-work' }, { repo: 'srbryers/flora-studio', quota: changed(59, 86) });
-  assert.equal(d.route, 'sonnet'); assert.match(d.why.join(' '), /repo override blocked/);
+  const d = choose({}, { override: override('sonnet'), quota: changed(81, 86) });
+  assert.equal(d.route, 'astra'); assert.match(d.why.join(' '), /repo override blocked/);
 });
 test('repo rules, machine restrictions, external instructions and notes survive', () => {
   assert.equal(choose({ kind: '3d-work' }, { repo: 'srbryers/flora-studio' }).route, 'astra');
@@ -151,11 +152,65 @@ test('expired quota is unknown and does not impose an old hard stop', () => {
   assert.equal(d.status, 'ok'); assert.equal(d.quota, 'unknown'); assert.equal(d.basis, 'trial');
 });
 test('card cannot bypass an external instruction; malformed costs and future cards are ignored', () => {
-  const p = structuredClone(policy); p.cards.byKind['user-facing-copy'] = 'tasks/runs/quick-edit.card.json';
+  const p = structuredClone(policy); p.cards.byKind['user-facing-copy'] = 'quick-edit.card.json';
   const d = choose({ kind: 'user-facing-copy' }, { policy: p, repo: 'srbryers/prelude-social-skills-coach',
     cards: { 'user-facing-copy': card('CALIBRATED', 'meta/muse-spark-1.3') } });
   assert.equal(d.status, 'external');
   const c = card('NO_CLEAR_WINNER'); c.models = {};
   assert.equal(choose({}, { cards: { 'multi-step-coding': c } }).basis, 'trial');
   assert.equal(choose({}, { cards: { 'multi-step-coding': card('CALIBRATED', undefined, '2027-01-01') } }).basis, 'trial');
+});
+
+test('pool quota ignores Fable and keeps the highest duplicate weekly usage', () => {
+  const raw = structuredClone(sample);
+  raw['claude-code'].windows[1].usedPercent = 34;
+  raw['claude-code'].windows.push({ label: 'Fable', kind: 'weekly', model: 'fable', usedPercent: 2,
+    resetsAt: '2026-10-08T17:00:00.495Z' });
+  assert.equal(choose({}, { quota: normalizeQuota(raw) }).quota.claude.weekly.used, 34);
+  raw['claude-code'].windows.push({ kind: 'weekly', usedPercent: 37, resetsAt: '2026-10-08T17:00:00.495Z' },
+    { kind: 'weekly', usedPercent: 10, resetsAt: '2026-10-08T17:00:00.495Z' });
+  const normalized = normalizeQuota(raw);
+  assert.equal(normalized.claude.windows.filter(w => w.kind === 'weekly').length, 1);
+  assert.equal(choose({}, { quota: normalized }).quota.claude.weekly.used, 37);
+  assert.equal(quotaPace({ claude: { windows: raw['claude-code'].windows } }, Date.parse(now)).claude.weekly.used, 37);
+});
+test('quota requires time zones and clamps elapsed percentage', () => {
+  const q = changed(); q.claude.windows[1].resetsAt = '2026-10-08T17:00:00';
+  const d = choose({}, { quota: q });
+  assert.equal(d.quota.claude.weekly, undefined);
+  assert.ok(d.notes.includes('quota unknown: hard stops not applied'));
+  assert.equal(d.quota.claude['five-hour'].elapsed, 0);
+  const raw = structuredClone(sample); raw.codex.windows[0].resetsAt = '2026-10-08T17:00:00';
+  assert.equal(normalizeQuota(raw).codex, undefined);
+  q.claude.windows[1].resetsAt += '+00:00';
+  assert.ok(choose({}, { quota: q }).quota.claude.weekly);
+});
+test('require-quota blocks unknown candidate pools and accepts complete quota', () => {
+  assert.equal(choose({ requireQuota: true }).status, 'ok');
+  for (const q of [null, { codex: quota.codex }, { ...quota, claude: { windows: [quota.claude.windows[1]] } }]) {
+    const d = choose({ requireQuota: true }, { quota: q });
+    assert.equal(d.status, 'blocked'); assert.match(d.why.join(' '), /quota unknown: hard stops not applied/);
+  }
+  assert.equal(choose({ requireQuota: true }, { now: '2026-11-01', quota }).status, 'blocked');
+  // Muse has no readable quota, while a free local route and an external instruction need no worker quota.
+  assert.equal(choose({ kind: 'quick-edit', requireQuota: true }).status, 'blocked');
+  assert.equal(choose({ kind: 'user-facing-copy', requireQuota: true }, { repo: 'srbryers/prelude-social-skills-coach', quota: null }).status, 'external');
+});
+test('repo and file rules outrank calibrated cards', () => {
+  for (const deps of [{ repo: 'srbryers/prelude-social-skills-coach' }, { override: override('gpt-5.5') }]) {
+    const d = choose({}, { ...deps, cards: { 'multi-step-coding': card() } });
+    assert.equal(d.route, 'gpt-5.5'); assert.equal(d.basis, 'policy');
+    assert.ok(d.why.includes('repo rule outranks card'));
+  }
+});
+test('cards cannot apply to another task', () => {
+  const c = card(); c.task = 'quick-edit';
+  const d = choose({}, { cards: { 'multi-step-coding': c } });
+  assert.equal(d.basis, 'trial'); assert.match(d.why.join(' '), /task mismatch/);
+});
+test('default machine comes from validated policy and respects repo machines', () => {
+  const p = structuredClone(policy); p.machines.default = 'pc';
+  assert.equal(choose({ kind: 'quick-edit' }, { policy: p }).machine, 'pc');
+  assert.equal(choose({ kind: 'quick-edit' }, { policy: p, override: { policyVersion: 1, rules: [], machines: ['mac-studio'] } }).machine, 'mac-studio');
+  for (const value of ['default', 'unknown', null]) { p.machines.default = value; assert.equal(validatePolicy(p).ok, false); }
 });

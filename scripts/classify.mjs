@@ -13,12 +13,14 @@ export async function classify({ brief, execute = false, limitUsd = 0.01 }, {
   const questions = { kind: { type: 'choice', instructions: 'Which kind best describes this agent task? Choose unknown when the brief is insufficient.', criteria } };
   const body = JSON.stringify({ model: 'jev-latest', state: { brief }, questions });
   // ⚠ Do not truncate a task into a different task, or read a key before budget approval.
-  if (Buffer.byteLength(body) > 80_000) throw new TypeError('Classifier request exceeds 80000 bytes; shorten the brief or pass --kind');
-  budget({ limitUsd, maxRequests: 1 });
+  const bytes = Buffer.byteLength(body);
+  if (bytes > 80_000) throw new TypeError('Classifier request exceeds 80000 bytes; shorten the brief or pass --kind');
+  budget({ limitUsd, maxRequests: 1, maxInputTokens: bytes });
+  const key = readKey();
   let response;
   try {
     response = await fetchImpl(JEV_ENDPOINT, { method: 'POST',
-      headers: { Authorization: `Bearer ${readKey()}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body, signal: AbortSignal.timeout(30_000) });
   } catch {
     // ⚠ Errors can echo credentials or the brief; retain only a fixed failure reason.

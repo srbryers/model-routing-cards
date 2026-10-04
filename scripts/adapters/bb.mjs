@@ -6,10 +6,19 @@ export function normalizeQuota(raw) {
   for (const [provider, pool] of [['claude-code', 'claude'], ['codex', 'codex']]) {
     const entry = raw?.[provider];
     if (entry?.status !== 'ok' || !Array.isArray(entry.windows)) continue;
-    const windows = entry.windows.filter(w => ['weekly', 'five-hour'].includes(w?.kind)
-      && Number.isFinite(w.usedPercent) && w.usedPercent >= 0 && w.usedPercent <= 100
-      && typeof w.resetsAt === 'string' && Number.isFinite(Date.parse(w.resetsAt)))
-      .map(({ kind, usedPercent, resetsAt }) => ({ kind, usedPercent, resetsAt }));
+    const byKind = new Map();
+    for (const w of entry.windows) {
+      // ⚠ Model sub-limits are not the shared pool; duplicates must fail closed.
+      if (!w || Object.hasOwn(w, 'model') || !['weekly', 'five-hour'].includes(w.kind)
+        || !Number.isFinite(w.usedPercent) || w.usedPercent < 0 || w.usedPercent > 100
+        || typeof w.resetsAt !== 'string' || !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(w.resetsAt)
+        || !Number.isFinite(Date.parse(w.resetsAt))) continue;
+      if (!byKind.has(w.kind) || w.usedPercent > byKind.get(w.kind).usedPercent) {
+        const { kind, usedPercent, resetsAt } = w;
+        byKind.set(kind, { kind, usedPercent, resetsAt });
+      }
+    }
+    const windows = [...byKind.values()];
     if (windows.length) result[pool] = { windows };
   }
   return Object.keys(result).length ? result : null;

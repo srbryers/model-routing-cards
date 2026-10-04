@@ -115,6 +115,18 @@ test('budget refusal prevents credential and request reads', async t => {
   assert.equal(existsSync(join(h.stateDir, 'outcomes.jsonl')), false);
 });
 
+test('key configuration errors stay actionable after budget approval, before a request', async t => {
+  let approved = false;
+  const h = harness(t, { budget: () => { approved = true; }, readKey: () => {
+    assert.equal(approved, true);
+    throw new Error('No Jev key configured');
+  } });
+  decision(h);
+  assert.equal(await main([...record, ...files(h), '--execute'], h), 2);
+  assert.match(h.output.at(-1), /No Jev key configured/);
+  assert.equal(existsSync(join(h.stateDir, 'outcomes.jsonl')), false);
+});
+
 test('Jev state uses the existing truncation limit', async t => {
   const longResult = resultText.repeat(6000);
   const h = harness(t, { readKey: () => 'test', fetchImpl: async (_, options) => {
@@ -220,7 +232,7 @@ test('empty history and unmapped ready kind have actionable output', async t => 
     assert.equal(await main(['record', route, '--result', 'fail'], h), 0);
   }
   assert.equal(await main(['outcomes', '--json'], h), 0);
-  assert.match(last(h).readiness[0].nextStep, /map cards.byKind\["docs"\] to tasks\/runs\/docs.card.json/);
+  assert.match(last(h).readiness[0].nextStep, /map cards.byKind\["docs"\] to docs.card.json/);
 });
 
 test('concurrent records append intact lines using the shared state lock', async t => {
@@ -249,4 +261,19 @@ test('field outcomes never enter card, route or pick trust inputs', async t => {
     assert.doesNotMatch(readFileSync(new URL(`../scripts/${file}.mjs`, import.meta.url), 'utf8'), /outcomes|recordOutcome|fieldEvidence/);
   }
   assert.doesNotMatch(runPick.toString(), /outcomes|recordOutcome|fieldEvidence/);
+});
+
+test('shared log helpers skip corrupt lines and preserve appends after a truncated tail', async t => {
+  const h = harness(t); decision(h);
+  const decisionFile = join(h.stateDir, 'decisions.jsonl');
+  writeFileSync(decisionFile, readFileSync(decisionFile, 'utf8') + 'null\n{broken');
+  const outcomeFile = join(h.stateDir, 'outcomes.jsonl');
+  writeFileSync(outcomeFile, '[]\n{broken');
+  assert.equal(await main(record, h), 0);
+  assert.equal(await main(['outcomes', '--json'], h), 0);
+  assert.equal(last(h).rows[0].recordedOutcomes, 1);
+  assert.equal(last(h).rows[0].pass, 1);
+  assert.deepEqual(last(h).unreadableLogLines, { decisions: 2, outcomes: 2 });
+  assert.equal(await main(['outcomes'], h), 0);
+  assert.match(h.output.at(-1), /Skipped 2 unreadable outcomes log lines/);
 });
