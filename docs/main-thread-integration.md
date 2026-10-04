@@ -25,7 +25,8 @@ below).
 `--execute` allows classification of the brief; with `--kind` no model is
 called. Without `--execute`, a bare brief returns `needs_kind` and reads no
 credentials. Quota is read locally. `--require-quota` makes `pick` return
-`blocked` when quota is unknown for a readable pool (Claude, Codex),
+`blocked` when quota is unknown for the selected readable pool (Claude, Codex),
+or either pool involved in a tier-2 pace or quota-preference choice,
 instead of skipping the hard stops; do not combine it with `--no-quota`,
 which skips the quota read. Muse and local Pi have no readable quota by
 design. They never block on `--require-quota`; their limits come from
@@ -39,7 +40,7 @@ Act on `status` in the output:
 | `needs_kind` | The kind is unknown | Take one from `classifier.top`, or judge it, and re-run with `--kind` |
 | `external` | Follow `instruction` instead of spawning | If `requiresSpendApproval` is true, get approval first |
 | `blocked` | No allowed route | Report back and quote `why` |
-| `needs_approval` | The chosen route costs money per call | Show Sebastian the route and price, then re-run with `--spend-approved` once approved (see below) |
+| `needs_approval` | The chosen route costs money per call | Show the user the route and price, then re-run with `--spend-approved <route>` once approved (see below) |
 
 ## Before dispatch
 
@@ -52,7 +53,7 @@ Act on `status` in the output:
 3. Read `notes` and apply any that set conditions.
 4. Then run `spawn.argv`.
 
-Routes with no reasoning setting (Pi) have no `--reasoning-level` flag.
+Routes with no reasoning setting (`pi-local`) have no `--reasoning-level` flag.
 That is not "missing".
 
 Exit codes: 0 for `ok` or `external`, 3 for `needs_kind`, 4 for
@@ -114,20 +115,29 @@ Status `needs_approval` (exit 5) means the chosen route costs money per
 call (a metered route). `spawn` is `null`. The command and price are under
 `approval: { spawnArgv, costPer1M, route }`.
 
-Show Sebastian the route and its price. Re-run with `--spend-approved`
-only after he approves, or if the task brief already grants that spend.
-`--spend-approved` is blanket: it approves spend, not a route. After the
-re-run, compare the returned `route` and `costPer1M` with what Sebastian
-approved. If the route differs, or any price is higher or unknown (`null`)
-where the approved one was known, do not dispatch. Ask for approval again.
+Show the user the route and its price. Re-run with `--spend-approved <route>`
+only after the user approves, or if the task brief already grants that spend.
+Use a comma-separated list to name several approved routes. A bare
+`--spend-approved` is a usage error (exit 2): name the approved route.
+The code allows `ok` only when the chosen paid route is in that list. If a
+cooldown or policy change selects a different paid route, it returns
+`needs_approval` again and explains the mismatch. The log records the approved
+route list and the selected route. Approval is not a price cap.
 A `null` price means unknown, not free.
 
 ## Metered routes
 
-These are Fireworks models via Pi, and Gemini via OpenRouter (currently
-disabled until credit is added). They are used only when quota stops or
-cooldowns remove every subscription candidate, or when a repo rule names
-one. Tier 3 has no metered fallback.
+Fireworks models via Pi are used only when quota stops or cooldowns remove every
+subscription candidate, or when a repo rule names one. Tier 3 has no metered
+fallback.
+
+Gemini-specific work can use `gemini-pro`, `gemini-flash` or `gemini-flash-lite`
+through `acp-gemini`: Gemini CLI on Vertex AI, billed per token to a Google Cloud
+project. These routes run on Mac Studio and use agent-managed `medium` reasoning.
+They are not general coding fallbacks and are not in `quota.meteredFallback`.
+OpenRouter Gemini routes remain disabled fallbacks behind acp-gemini.
+The global `visual-implementation` default stays Opus; a repo may choose
+`gemini-flash` for narrowly scoped visual work.
 
 ## Limit
 
