@@ -172,7 +172,7 @@ test('skill-workflow never yields Muse, including escalation', () => {
 
 test('two failures escalate quick-edit once to tier 2 at high', () => {
   assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { failures: 1 }).candidates), ['muse', 'luna']);
-  for (const failures of [2, 4]) {
+  for (const failures of [2, 3]) {
     const result = resolveCandidates(policy, 'quick-edit', { failures }).candidates;
     assert.deepEqual(ids(result), ['sonnet', 'astra']);
     assert.ok(result.every(c => c.reasoning === 'high' && c.reason.includes('tier 1 -> 2')));
@@ -234,7 +234,7 @@ test('Sonnet never exceeds xhigh across all kinds, failures and inherited overri
 });
 
 test('local and image candidates carry no effort; local paid fallback uses medium', () => {
-  const local = resolveCandidates(policy, 'bulk-text').candidates;
+  const local = resolveCandidates(policy, 'bulk-text', { localConfig: { routes: { 'pi-local': { model: 'local-test-model' } } } }).candidates;
   assert.deepEqual(ids(local), ['pi-local', 'muse', 'luna']);
   assert.deepEqual(local.map(c => c.reasoning), [null, 'medium', 'medium']);
   const image = resolveCandidates(policy, 'image-generation').candidates;
@@ -551,6 +551,45 @@ test('a superseded wildcard route cannot rescue an override that excludes every 
   invalid(validateOverride(override, policy), /exclusions remove every route for docs/);
 });
 
+test('task-wide failures apply every escalation step and cap at tier 3', () => {
+  for (const [failures, routes, tier, reasoning] of [
+    [2, ['sonnet', 'astra'], 2, 'high'], [4, ['opus'], 3, 'xhigh'], [9, ['opus'], 3, 'xhigh'],
+  ]) {
+    const { candidates } = resolveCandidates(policy, 'quick-edit', { failures });
+    assert.deepEqual(ids(candidates), routes);
+    assert.ok(candidates.every(c => c.tier === tier && c.reasoning === reasoning));
+  }
+  const p = copy(); p.escalation.failuresScope = 'current-tier';
+  invalid(validatePolicy(p), /failuresScope must be task/);
+});
+test('repo routes remain marked escalated across multiple tier transitions', () => {
+  const result = resolveCandidates(policy, 'quick-edit', { failures: 4, override: rule('muse') });
+  assert.equal(result.candidates[0].route, 'muse');
+  assert.equal(result.candidates[0].escalated, true);
+  assert.equal(result.candidates[0].tier, 3);
+  assert.equal(result.candidates[1].route, 'opus');
+});
+
+test('metered route metadata and fallback tiers validate strictly', () => {
+  for (const cost of [null, [], {}, { in: -1, out: 1 }, { in: '0.3', out: 1 }, { in: 0, out: Infinity }, { in: 0, out: 1, extra: 2 }]) {
+    const p = copy(); p.routes['fw-kimi-k3'].costPer1M = cost;
+    invalid(validatePolicy(p), /costPer1M/);
+  }
+  for (const disabled of [true, false, null, 0, '', ' ']) {
+    const p = copy(); p.routes['fw-kimi-k3'].disabled = disabled;
+    invalid(validatePolicy(p), /disabled/);
+  }
+  for (const mutate of [p => p.quota.meteredFallback['3'].push('fw-kimi-k3'),
+    p => p.quota.meteredFallback['1'] = ['muse'], p => p.routes['fw-kimi-k3'].requiresSpendApproval = false]) {
+    const p = copy(); mutate(p); assert.equal(validatePolicy(p).ok, false);
+  }
+  for (const route of ['or-gemini-flash', 'or-gemini-pro']) {
+    const result = resolveCandidates(policy, 'quick-edit', { override: rule(route) });
+    assert.ok(!ids(result.candidates).includes(route));
+    assert.ok(result.blocked.some(b => b.route === route && b.why === policy.routes[route].disabled));
+  }
+});
+
 test('fieldEvidence defaults and validation preserve a head-to-head readiness threshold', () => {
   assert.deepEqual(policy.fieldEvidence, { minOutcomesPerRoute: 5, minRoutes: 2 });
   for (const value of [undefined, null, [], {}, { minOutcomesPerRoute: 5 },
@@ -567,4 +606,51 @@ test('fieldEvidence defaults and validation preserve a head-to-head readiness th
   }
   const p = copy(); p.fieldEvidence = { minOutcomesPerRoute: 1, minRoutes: 3 };
   assert.deepEqual(validatePolicy(p), { ok: true, errors: [] });
+});
+
+test('every metered fallback clamps every kind level to supported reasoning, ties upward', () => {
+  const expected = {
+    'fw-deepseek-v4p1-flash': { medium: 'high', high: 'high', xhigh: 'max' },
+    'fw-minimax-m3': { medium: 'medium', high: 'high', xhigh: 'high' },
+    'fw-kimi-k3': { medium: 'high', high: 'high', xhigh: 'max' },
+    'fw-glm-5p3': { medium: 'high', high: 'high', xhigh: 'max' },
+  };
+  for (const [route, levels] of Object.entries(expected)) {
+    for (const [kind, entry] of Object.entries(policy.kinds)) {
+      const { candidates } = resolveCandidates(policy, kind, { override: rule(route, [kind]) });
+      assert.equal(candidates[0].reasoning, entry.reasoning === null ? null : levels[entry.reasoning], `${route}: ${kind}`);
+    }
+  }
+});
+test('supported reasoning applies to all declaring routes, including no support and explicit none', () => {
+  const p = copy(); p.routes.muse.supportedReasoning = ['low', 'high'];
+  assert.equal(resolveCandidates(p, 'quick-edit').candidates[0].reasoning, 'high');
+  p.routes.muse.supportedReasoning = [];
+  assert.equal(resolveCandidates(p, 'quick-edit').candidates[0].reasoning, null);
+  p.routes.muse.supportedReasoning = ['none'];
+  assert.equal(resolveCandidates(p, 'quick-edit').candidates[0].reasoning, 'none');
+  for (const [route, level, expected] of [
+    ['fw-qwen3p8-max', 'high', 'xhigh'], ['fw-gpt-oss-120b', 'xhigh', 'high'],
+    ['fw-kimi-k3', 'low', 'low'], ['fw-deepseek-v4p1-flash', 'max', 'max'],
+  ]) {
+    const c = resolveCandidates(policy, 'quick-edit', { override: rule(route, ['quick-edit'], { reasoning: level }) }).candidates[0];
+    assert.equal(c.reasoning, expected);
+  }
+});
+test('supported reasoning validation rejects invalid levels, duplicates and cap violations', () => {
+  for (const value of [null, 'high', {}, ['bogus'], ['high', 'high'], [null]]) {
+    const p = copy(); p.routes.muse.supportedReasoning = value;
+    invalid(validatePolicy(p), /supportedReasoning/);
+  }
+  const p = copy(); p.routes.sonnet.supportedReasoning = ['high', 'max'];
+  invalid(validatePolicy(p), /supportedReasoning exceeds cap/);
+});
+
+test('unlisted disabled metered models need a verified reasoning declaration before enabling', () => {
+  for (const route of ['or-gemini-flash', 'or-gemini-pro']) {
+    const p = copy(); delete p.routes[route].disabled;
+    invalid(validatePolicy(p), /supportedReasoning is required/);
+    p.routes[route].supportedReasoning = [];
+    assert.equal(validatePolicy(p).ok, true);
+  }
 });

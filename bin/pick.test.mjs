@@ -58,7 +58,9 @@ test('CLI limit persists cooldown and blocked decisions are logged with code 4',
   assert.equal(last(h).until, '2026-10-04T20:35:00.000Z');
   assert.equal(await runPick(['--kind', 'quick-edit'], h), 0); assert.equal(last(h).route, 'luna');
   await runLimit(['luna', '--hours', '1'], h);
-  assert.equal(await runPick(['--kind', 'quick-edit'], h), 4); assert.equal(last(h).status, 'blocked');
+  assert.equal(await runPick(['--kind', 'quick-edit'], h), 5); assert.equal(last(h).status, 'needs_approval');
+  await runLimit(['opus'], h);
+  assert.equal(await runPick(['--kind', 'architecture'], h), 4); assert.equal(last(h).status, 'blocked');
   const logged = readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(logged.at(-1).status, 'blocked');
 });
@@ -97,7 +99,7 @@ test('CLI card search order is flag, env, repo runs, then XDG data', async t => 
   const dirs = [join(h.stateDir, 'flag'), join(h.stateDir, 'env'), join(h.stateDir, 'repo', 'tasks', 'runs'), join(h.stateDir, 'data', 'model-routing', 'cards')];
   const models = ['anthropic/claude-sonnet-5.5', 'openai/gpt-6-astra', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6-astra'];
   dirs.forEach((dir, i) => putCard(dir, models[i]));
-  h.env = { MODEL_ROUTING_CARDS_DIR: dirs[1], XDG_DATA_HOME: join(h.stateDir, 'data') };
+  h.env = { HOME: h.stateDir, MODEL_ROUTING_CARDS_DIR: dirs[1], XDG_DATA_HOME: join(h.stateDir, 'data') };
   for (let i = 0; i < dirs.length; i++) {
     assert.equal(await runPick(['--kind', 'multi-step-coding', '--repo', join(h.stateDir, 'repo'), '--cards-dir', dirs[0], '--no-quota'], h), 0);
     assert.equal(last(h).basis, 'card'); assert.equal(last(h).route, i % 2 ? 'astra' : 'sonnet');
@@ -154,4 +156,81 @@ test('CLI require-quota blocks missing usage and displays the warning in human o
   h.isTTY = true;
   await runPick(['--kind', 'multi-step-coding', '--no-quota'], h);
   assert.match(h.output.at(-1), /! quota unknown: hard stops not applied/);
+});
+
+test('CLI loads the local model from XDG without executing its beforeSpawn check', async t => {
+  const h = harness(t);
+  const configDir = join(h.stateDir, 'config');
+  mkdirSync(join(configDir, 'model-routing'), { recursive: true });
+  writeFileSync(join(configDir, 'model-routing', 'local.json'), JSON.stringify({ routes: { 'pi-local': { model: 'cli-local-fixture' } } }));
+  h.env.XDG_CONFIG_HOME = configDir;
+  assert.equal(await runPick(['--kind', 'bulk-text', '--no-quota'], h), 0);
+  const d = last(h); assert.equal(d.model, 'cli-local-fixture');
+  assert.equal(d.spawn.missing.includes('reasoning-level'), false);
+  assert.match(d.beforeSpawn[0], /Check the local server is running/);
+  h.isTTY = true;
+  await runPick(['--kind', 'bulk-text', '--no-quota'], h);
+  assert.match(h.output.at(-1), /before spawn: Check the local server/);
+});
+test('CLI accepts injected local config and rejects forbidden model overrides', async t => {
+  const h = harness(t, { loadLocalConfig: () => ({ routes: { 'pi-local': { model: 'injected-fixture' } } }) });
+  assert.equal(await runPick(['--kind', 'bulk-text', '--no-quota'], h), 0);
+  assert.equal(last(h).route, 'pi-local');
+  h.loadLocalConfig = () => ({ routes: { muse: { model: 'forbidden' } } });
+  assert.equal(await main(['pick', '--kind', 'quick-edit', '--no-quota'], h), 2);
+  assert.match(h.output.at(-1), /not marked modelFrom/);
+});
+
+test('CLI metered fallback exits 5 with preview only, then records explicit approval', async t => {
+  const h = harness(t);
+  await runLimit(['muse'], h); await runLimit(['luna'], h);
+  const args = ['--kind', 'quick-edit', '--title', 'quoted title', '--json'];
+  assert.equal(await main(['pick', ...args], h), 5);
+  assert.equal(last(h).route, 'fw-deepseek-v4p1-flash');
+  assert.equal(last(h).status, 'needs_approval');
+  assert.equal(last(h).spawn, null);
+  assert.ok(last(h).approval.spawnArgv.includes('quoted title'));
+  assert.deepEqual(last(h).approval.costPer1M, { in: 0.3, out: 1.2 });
+  assert.equal(last(h).approval.route, 'fw-deepseek-v4p1-flash');
+  assert.deepEqual(last(h).costPer1M, { in: 0.3, out: 1.2 });
+  assert.equal(await main(['pick', ...args, '--spend-approved'], h), 0);
+  const rows = readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(last(h).spawn.argv.includes('quoted title')); assert.equal(last(h).approval, undefined);
+  assert.equal(rows[0].approval.spawnArgv, undefined);
+  assert.ok(!JSON.stringify(rows).includes('quoted title'));
+  assert.deepEqual(rows.map(d => d.spendApproved), [false, true]);
+  assert.deepEqual(rows.map(d => d.status), ['needs_approval', 'ok']);
+  assert.equal(await runPick([...args.filter(a => a !== '--json'), '--spend-approved'], { ...h, isTTY: true }), 0);
+  assert.match(h.output.at(-1), /Cost per 1M tokens \(USD\): in 0.3, out 1.2; spend approved: true/);
+});
+
+test('malformed or invalid local config disables only local routes and reports its full path', async t => {
+  const h = harness(t);
+  const configDir = join(h.stateDir, 'config');
+  const file = join(configDir, 'model-routing', 'local.json');
+  mkdirSync(join(configDir, 'model-routing'), { recursive: true }); h.env.XDG_CONFIG_HOME = configDir;
+  for (const contents of ['{"model": "private-value"', JSON.stringify({ routes: { muse: { model: 'private-value' } } })]) {
+    writeFileSync(file, contents);
+    assert.equal(await main(['pick', '--kind', 'multi-step-coding', '--no-quota'], h), 0);
+    assert.equal(await main(['pick', '--kind', 'bulk-text', '--no-quota'], h), 0);
+    const d = last(h); assert.equal(d.route, 'muse');
+    assert.ok(d.alternatives.some(a => a.route === 'pi-local' && a.rejected.includes(file)));
+    assert.ok(d.notes.includes('pi-local unavailable; falling back to muse (cloud). Do not send private text.'));
+    assert.ok(!JSON.stringify(d).includes('private-value'));
+  }
+});
+test('strict quota permits configured local work with no quota and logs its local model ID', async t => {
+  const h = harness(t, { loadLocalConfig: () => ({ routes: { 'pi-local': { model: 'private-local-model' } } }) });
+  assert.equal(await runPick(['--kind', 'bulk-text', '--require-quota', '--no-quota'], h), 0);
+  assert.equal(last(h).route, 'pi-local'); assert.equal(last(h).model, 'private-local-model');
+  assert.ok(readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').includes('private-local-model'));
+});
+test('blanket spend approval also permits an explicit route with unknown prices', async t => {
+  const h = harness(t, { loadOverride: () => ({ policyVersion: 1, rules: [
+    { kinds: ['quick-edit'], route: 'fw-kimi-k3', source: 'fixture', why: 'explicit choice' },
+  ] }) });
+  assert.equal(await runPick(['--kind', 'quick-edit'], h), 5);
+  assert.equal(last(h).spawn, null); assert.deepEqual(last(h).approval.costPer1M, { in: null, out: null });
+  assert.equal(await runPick(['--kind', 'quick-edit', '--spend-approved'], h), 0);
+  assert.ok(last(h).spawn.argv.includes('high')); assert.equal(last(h).reasoning, 'high');
 });
