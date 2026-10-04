@@ -97,6 +97,40 @@ Every decision is logged under `$XDG_STATE_HOME/model-routing/decisions.jsonl`
 whole directory. The brief is stored only as a SHA-256 hash and character length.
 No routing state is written into the task repo. See [policy details](policy/README.md).
 
+## Record
+
+After the main thread verifies the work, record what happened:
+
+```sh
+model-routing record dec_<time>_<rand> --result pass --gate tests=pass --gate lint=pass
+model-routing outcomes
+model-routing outcomes --kind quick-edit --json
+```
+
+Results are `pass`, `partial`, `fail` or `abandoned`. Gates are facts from code,
+never a model. Pass repeated `--gate name=pass|fail` flags or `--gates-file F.json`
+containing an object such as `{"tests":"pass","typecheck":"fail"}`. Conflicting
+gate values are rejected. `--failures-before N` defaults to zero. `--notes` accepts
+up to **500 characters**; notes must not contain secrets.
+
+Recording is local by default: no network or credential read. An optional Jev
+check needs all three flags: `--brief-file F --result-file R --execute`. The brief
+must match the decision's hash. Budget approval runs before the request, with a
+**$0.01** default cap (`--jev-limit-usd`). Only the probability that the result met
+the brief, model ID and cost are stored. Jev does not supply gates or change the
+recorded result. Without `--execute`, these text files are not read.
+
+Records append to `outcomes.jsonl` beside the decision log, using the same state
+directory override. Recording again corrects an outcome; the summary uses the
+last appended line per decision. Unknown IDs and decisions without a route exit
+**2**. Notes over the limit are rejected, not shortened.
+
+**Field outcomes are not a measurement and never feed the trust gate.** Different
+tasks went to different routes, so the counts cannot tell which route is better.
+Outcomes stay separate from bake-off receipts. The summary shows counts and basis
+splits, then says where a real bake-off is worth running: by default, **5 outcomes
+on each of at least 2 routes**. It gives a task-file next step, never a winner.
+
 ## Read That Card
 
 Gemini averaged **49% higher** than GPT-5.5. The card recommends Gemini, but not

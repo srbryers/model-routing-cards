@@ -712,6 +712,10 @@
       ]
     }
   },
+  "fieldEvidence": {
+    "minOutcomesPerRoute": 5,
+    "minRoutes": 2
+  },
   "classifier": {
     "minProbability": 0.6,
     "minMargin": 0.15

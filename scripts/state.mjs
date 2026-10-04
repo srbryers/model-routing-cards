@@ -14,11 +14,13 @@ function readOptional(file, fallback) {
 export function readState(dir) {
   const alternation = {};
   // ⚠ The log is the alternation record: a crash cannot advance a trial without logging it.
-  for (const line of readOptional(join(dir, 'decisions.jsonl'), '').split('\n').filter(Boolean)) {
-    const decision = JSON.parse(line);
+  for (const decision of readDecisions(dir)) {
     if (decision.status === 'ok' && decision.basis === 'trial') alternation[decision.kind] = decision.route;
   }
   return { alternation, limits: JSON.parse(readOptional(join(dir, 'limits.json'), '{}')) };
+}
+export function readDecisions(dir) {
+  return readOptional(join(dir, 'decisions.jsonl'), '').split('\n').filter(Boolean).map(JSON.parse);
 }
 export function logDecision(dir, decision, brief) {
   const record = { ...decision, ...(brief === undefined ? {} : { brief: {
@@ -45,7 +47,7 @@ export async function withStateLock(dir, operation) {
     try { mkdirSync(lock); break; }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      if (Date.now() >= deadline) throw new Error(`State is locked at ${lock}; check for an active pick or limit process before removing the lock`);
+      if (Date.now() >= deadline) throw new Error(`State is locked at ${lock}; check for an active model-routing process before removing the lock`);
       await delay(20);
     }
   }

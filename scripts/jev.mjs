@@ -97,7 +97,7 @@ import { readJevKey } from './jev-key.mjs';
 
 /** Keep the newest of a long state rather than the oldest — outputs end with
  *  the part a judge most needs. */
-function fit(state) {
+export function fitJevState(state) {
   const text = typeof state === 'string' ? state : JSON.stringify(state);
   if (text.length <= MAX_STATE_CHARS) return text;
   const keep = MAX_STATE_CHARS - 40;
@@ -144,7 +144,7 @@ export async function judge({ state, gates = {}, metrics = {}, threshold = GATE_
       Authorization: `Bearer ${readJevKey()}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ model: 'jev-latest', state: fit(state), questions }),
+    body: JSON.stringify({ model: 'jev-latest', state: fitJevState(state), questions }),
   });
   if (!res.ok) {
     /* ⚠ The status, not the body: an error body can echo the request, and the
