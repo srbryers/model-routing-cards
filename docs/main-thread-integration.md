@@ -175,8 +175,8 @@ Weekly pace picks a pool, then the pool picks a route:
   on (`basis: trial`).
 
 A repo rule that names a route (for example Astra) beats all of this. Sol runs
-on the Mac Studio only; on the PC it is skipped. It needs Codex CLI 0.160 or
-later.
+on the Mac Studio and the PC. It needs Codex CLI 0.160 or later. Pi and Fireworks
+routes are mac-studio only: BB's Pi extension does not start on Windows.
 
 ## Cards
 

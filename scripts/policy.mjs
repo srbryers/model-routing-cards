@@ -152,6 +152,8 @@ export function validatePolicy(policy) {
     const requiredProvider = route.pool === 'claude' ? 'claude-code' : pools[route.pool]?.requiredProvider;
     check(!requiredProvider || route.provider === requiredProvider, `${path}: pool ${route.pool} requires provider ${requiredProvider}`);
     if (muse(id, route)) check(Array.isArray(route.machines) && route.machines.every(m => m === 'mac-studio'), `${path}: Muse is mac-studio only`);
+    // ⚠ BB's Pi extension fails on Windows ("Unsupported fd type: UNKNOWN"), so a Pi route can never run on the PC.
+    if (route.provider === 'pi') check(Array.isArray(route.machines) && !route.machines.includes('pc'), `${path}: Pi routes are mac-studio only (BB's Pi extension does not start on Windows)`);
     if (has(route, 'supportedReasoning')) {
       const supported = list(route.supportedReasoning, `${path}.supportedReasoning`, ['none', ...LEVELS]);
       const cap = capFor(id, route);

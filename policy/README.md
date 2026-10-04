@@ -23,7 +23,7 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `kinds` | Fixed classifier labels, descriptions, tier, reasoning and explicit route order. `local` and `image` are outside paid tiers. `null` reasoning means no effort setting. |
 | `escalation` | `failuresScope: "task"` counts total failures across tiers. Every two failures advance one step: 1 → 2 at high, then 2 → 3 at xhigh. Stop at tier 3; local and image have no escalation step. |
 | `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, tier preferences and pool reservations. A lone preference binds when its target pool is available; reservations always bind. |
-| `tieBreak` | Tier 2 is Sonnet, Astra or Sol: repo rule, machine eligibility, weekly pace picks the pool, then the pool picks the route (Sonnet; or Astra and Sol alternating; or all three when the pools tie). Alternating choices are labelled `trial`. `routes` lists the rotation order and must all be tier-2 candidates. The PC drops Sol and keeps Sonnet/Astra. |
+| `tieBreak` | Tier 2 is Sonnet, Astra or Sol: repo rule, machine eligibility, weekly pace picks the pool, then the pool picks the route (Sonnet; or Astra and Sol alternating; or all three when the pools tie). Alternating choices are labelled `trial`. `routes` lists the rotation order and must all be tier-2 candidates. Sol runs on both machines. |
 | `review` | Review kinds require a different vendor from the author. |
 | `cards` | `byKind` maps kinds to card files. Fresh `CALIBRATED` winners may select an allowed candidate; measured cheaper results can break a pace tie. The 30-day limit matches `TRUST.STALE_DAYS`. |
 | `classifier` | `minProbability: 0.6` and `minMargin: 0.15` decide when Jev must defer. Both are validated from 0 to 1. |
@@ -40,8 +40,9 @@ its open questions. Benchmark evidence does not change policy by itself.
 2. Keep route references valid. Muse is Mac-only, contributor models are forbidden,
    Claude model/provider/pool/vendor must agree, as must Codex and Muse provider/pool
    pairs. Sonnet accepts xhigh but never max. Routes in `tieBreak.routes` must be tier-2 candidates.
-   Sol (`gpt-6.1-sol`) runs on the Mac Studio only: the PC's Codex CLI is 0.153 and rejects it, and the
-   route needs Codex CLI 0.160 or later. Its `supportedReasoning` is assumed from Astra until BB lists the model.
+   Sol (`gpt-6.1-sol`) runs on the Mac Studio and the PC; it needs Codex CLI 0.160 or later. BB lists it with
+   `ultra` as well, which policy never requests. A route with provider `pi` (including every Fireworks route)
+   must not list `pc`: BB's Pi extension fails on Windows with "Unsupported fd type: UNKNOWN", and the validator rejects it.
 3. Run `npm test`. The loader rejects unsupported versions, unknown fields and
    invalid references and duplicate JSON keys. A format change needs a new
    supported `policyVersion`.
@@ -169,7 +170,7 @@ classification; dispatch stays with the caller.
 | Cooldown | Skip limited routes, then use the surviving policy candidates. `limit` defaults to the route's policy duration, otherwise five hours. |
 | Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. Stops act on pools, so Sol follows Astra: Claude session >70% leaves Astra and Sol to alternate; Codex weekly >85% removes both and leaves Sonnet. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. |
 | Pace | `elapsedPct = 100 * (now - (resetsAt - length)) / length`; headroom is elapsed minus used. Weekly length is seven days; session length is five hours. Require a `Z` or explicit UTC offset, clamp elapsed to 0–100, compare full precision and show both headrooms. Ignore windows with a `model` field; duplicate kinds use the highest used percentage. |
-| Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. Pace compares the Claude and Codex weekly windows. If the larger headroom beats the smaller by more than the margin, that pool wins. Claude wins: Sonnet, `basis: policy`. Codex wins: Astra and Sol have no evidence between them, so they alternate, `basis: trial`. A difference at or below the margin rotates over every allowed tier-2 route (Sonnet → Astra → Sol → Sonnet), starting with Sonnet. Missing weekly data also rotates. When only one pool is allowed (for example after a quota stop), its routes alternate. On the PC, Sol is dropped by machine limits, so the rule runs over Sonnet and Astra. |
+| Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. Pace compares the Claude and Codex weekly windows. If the larger headroom beats the smaller by more than the margin, that pool wins. Claude wins: Sonnet, `basis: policy`. Codex wins: Astra and Sol have no evidence between them, so they alternate, `basis: trial`. A difference at or below the margin rotates over every allowed tier-2 route (Sonnet → Astra → Sol → Sonnet), starting with Sonnet. Missing weekly data also rotates. When only one pool is allowed (for example after a quota stop), its routes alternate. Sol is allowed on both machines, so the PC rotates the same way. |
 | Missing quota | Failed reads or missing/invalid/expired windows are unknown, never zero usage. Notes say “quota unknown: hard stops not applied”; valid remaining windows still impose their stops. `--require-quota` checks only pools marked `readable: true` (Claude and Codex). Check the selected pool, plus both pools when the tier-2 choice uses pace or a quota preference. Unused fallback pools do not count. Unreadable pools such as Muse and local never block for quota; `why` says they rely on cooldowns. External instructions need no worker quota. |
 | Review | Exclude the author's entire vendor. If every candidate is excluded, try the nearest different-vendor route with the same machine, exclusion, cooldown and quota checks. |
 | External | Return the instruction and spend-approval flag, with no spawn arguments. Worker cards cannot bypass an external instruction. |
@@ -269,7 +270,8 @@ selected-model queries. Their levels remain unclaimed; adding a verified
 ## Metered routes
 
 The `metered` pool bills per token. Its Pi and acp-gemini workers are Mac Studio only;
-each route's `note` records that this is the only tested machine. They do not
+Pi routes (including Fireworks) because BB's Pi extension does not start on Windows,
+acp-gemini because it is only tested there. They do not
 have readable subscription quota. Cooldowns still apply. Vendor identity stays
 independent of provider: `fw-gpt-oss-120b` is OpenAI and cannot review
 OpenAI-authored work. Claude still requires its Claude provider and pool.

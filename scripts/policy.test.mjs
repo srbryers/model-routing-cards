@@ -51,6 +51,8 @@ const badPolicies = [
   ['missing kind', p => delete p.kinds.docs, /kinds.docs is required/],
   ['extra kind', p => p.kinds.new = p.kinds.docs, /unknown kind new/],
   ['Muse on PC', p => p.routes.muse.machines.push('pc'), /Muse is mac-studio only/],
+  ['Pi on PC', p => p.routes['pi-local'].machines.push('pc'), /Pi routes are mac-studio only/],
+  ['Fireworks Pi route on PC', p => p.routes['fw-kimi-k3'].machines = ['mac-studio', 'pc'], /Pi routes are mac-studio only/],
   ['Claude via other harness', p => p.routes.opus.provider = 'pi', /pool claude requires provider claude-code/],
   ['Claude provider restriction removed', p => delete p.pools.claude.requiredProvider, /requiredProvider must be claude-code/],
   ['unknown pool', p => p.routes.astra.pool = 'typo', /unknown pool typo/],
@@ -480,10 +482,10 @@ test('Codex and Muse pool/provider identity is bidirectional', () => {
   ]) { const p = copy(); p.routes[id][field] = value; invalid(validatePolicy(p), pattern); }
 });
 
-test('sol is a Mac Studio codex route in tier 2, and its pool must stay codex', () => {
+test('sol is a codex route on both machines in tier 2, and its pool must stay codex', () => {
   const sol = policy.routes.sol;
-  assert.deepEqual([sol.provider, sol.model, sol.pool, sol.vendor, sol.machines], ['codex', 'gpt-6.1-sol', 'codex', 'openai', ['mac-studio']]);
-  assert.match(sol.note, /Codex CLI 0\.160 or later/); assert.match(sol.note, /assumed/);
+  assert.deepEqual([sol.provider, sol.model, sol.pool, sol.vendor, sol.machines], ['codex', 'gpt-6.1-sol', 'codex', 'openai', ['mac-studio', 'pc']]);
+  assert.match(sol.note, /Codex CLI 0\.160 or later/); assert.doesNotMatch(sol.note, /assumed|Mac Studio only|0\.153/);
   assert.ok(policy.tiers['2'].candidates.includes('sol'));
   for (const [id, kind] of Object.entries(policy.kinds)) if (kind.tier === 2) assert.ok(kind.candidates.includes('sol'), id);
   assert.deepEqual(policy.tieBreak.routes, ['sonnet', 'astra', 'sol']);
