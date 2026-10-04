@@ -20,6 +20,18 @@ export const task = {
 };
 ```
 
+## Model names
+
+A bare slug is an OpenRouter model. A prefix picks another route:
+`subconscious:`, `chatgpt:`, `codex:`, `muse:` and `claude:`.
+
+- `muse:<model>` runs `muse exec`. A `-contributor` model is refused.
+- `claude:<model>` runs `claude -p`.
+- Both are subscription calls with no tools, so cost is recorded as `null`.
+- For an effort level, use an object: `{ provider: 'muse', model, reasoning: 'low' }`.
+  `muse` takes `none` to `ultra`. `claude` takes `low` to `max`.
+- They ignore `schema`. Ask for the format in the prompt.
+
 ## ⚠⚠ Build the real prompt
 
 `prompt` must produce what the system actually sends. Approximations diverge

@@ -1,0 +1,17 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "stop_reason": "end_turn",
+  "terminal_reason": "completed",
+  "num_turns": 1,
+  "result": "ok",
+  "session_id": "00000000-0000-4000-8000-000000000002",
+  "total_cost_usd": 0.014251000000000002,
+  "usage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 6544,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 40
+  }
+}

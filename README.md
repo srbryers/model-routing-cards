@@ -146,6 +146,12 @@ runs costs twice its headline price, because you paid for the failed runs too.
 **A subscription model is recorded as unmeasured, not free.** Cards never break
 a tie on price when one model is metered and the other is not.
 
+Subscription models run through a CLI, with no tools and an empty working
+directory, and are named by prefix: `codex:`, `muse:` and `claude:`.
+`muse:<model>` runs `muse exec` and refuses any `-contributor` model, because
+those let Meta train on your prompts. `claude:<model>` runs `claude -p`, Claude
+Code itself. Neither needs an API key. Every CLI call times out after 10 minutes.
+
 ## Scoring What You Cannot Count
 
 Jev execution needs `TYPESAFE_API_KEY`. The adapter checks the process environment

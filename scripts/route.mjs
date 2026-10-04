@@ -32,7 +32,7 @@ import { pathToFileURL } from 'node:url';
    inline in this file, which made the single piece of logic that decides whether
    to believe a measurement the single piece with no test. */
 import { buildCard, TRUST } from './card.mjs';
-import { call, parseModel, keyNames, keyNameFor } from './providers.mjs';
+import { call, parseModel, keyNames, keyNameFor, isContributorModel } from './providers.mjs';
 
 const CATALOG = 'https://openrouter.ai/api/v1/models';
 
@@ -97,6 +97,14 @@ mkdirSync(runsDir, { recursive: true });
 if (cmd === 'run') {
   const N = Number(flag('runs', task.runs ?? TRUST.MIN_RUNS));
   const specs = task.models.map(parseModel);
+  /* ⚠ Stop before the dry run prints, not after the first refused receipt: a
+     contributor tier lets Meta train on the prompt, so it should never look
+     runnable. `call` refuses it as well. */
+  for (const sp of specs) {
+    if (sp.provider === 'muse' && isContributorModel(sp.model)) {
+      throw new Error(`${sp.label} is a muse contributor tier (Meta may train on prompts)`);
+    }
+  }
 
   console.log(`task      ${task.id}`);
   for (const sp of specs) console.log(`          ${sp.provider.padEnd(11)} ${sp.model}`);
