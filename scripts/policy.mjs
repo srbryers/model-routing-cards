@@ -119,6 +119,14 @@ export function validatePolicy(policy) {
       check(route?.provider === 'codex' && route?.pool === 'codex' && route?.vendor === 'openai',
         `${path}: codex provider and pool must agree with vendor openai`);
     }
+    // ⚠ Native Gemini IDs and acp-gemini must agree in both directions. External
+    // tools and OpenRouter-qualified IDs remain distinct Google billing routes.
+    // ⚠ Skip auto (unstable model choice) and gemini-2.5-pro (older line) in policy.
+    if (route?.provider === 'acp-gemini' || /^gemini-/.test(route?.model ?? '')) {
+      check(route?.provider === 'acp-gemini' && route?.pool === 'metered'
+        && route?.vendor === 'google' && /^gemini-/.test(route?.model ?? ''),
+      `${path}: native Gemini models require provider acp-gemini, pool metered and vendor google`);
+    }
     if (route?.provider === 'acp-muse' || route?.pool === 'muse') {
       check(route?.provider === 'acp-muse' && route?.pool === 'muse', `${path}: acp-muse provider and muse pool must agree`);
     }
@@ -158,7 +166,7 @@ export function validatePolicy(policy) {
       // ⚠ A disabled model absent from the catalog must be checked before enabling it.
       check(route.disabled || has(route, 'supportedReasoning'), `${path}.supportedReasoning is required for enabled metered workers`);
     }
-    if (has(route, 'costPer1M') && fields(route.costPer1M, `${path}.costPer1M`, ['in', 'out'])) {
+    if (has(route, 'costPer1M') && route.costPer1M !== null && fields(route.costPer1M, `${path}.costPer1M`, ['in', 'out'])) {
       for (const direction of ['in', 'out']) {
         const cost = route.costPer1M[direction];
         check(cost === null || (Number.isFinite(cost) && cost >= 0), `${path}.costPer1M.${direction} must be a nonnegative number or null`);
@@ -604,7 +612,7 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
       reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : '')
         + (reasoning !== candidate.reasoning && !external ? `; reasoning ${candidate.reasoning} adjusted to ${reasoning ?? 'omitted'} for ${id}` : ''),
       ...(external ? { instruction: route.instruction, requiresSpendApproval: route.requiresSpendApproval } : {}),
-      ...(route.costPer1M ? { costPer1M: route.costPer1M, requiresSpendApproval: route.requiresSpendApproval } : {}),
+      ...(has(route, 'costPer1M') ? { costPer1M: route.costPer1M, requiresSpendApproval: route.requiresSpendApproval } : {}),
       ...(note || route.note ? { note: [note, route.note].filter(Boolean).join(' ') } : {}) });
   }
   return { candidates, blocked };

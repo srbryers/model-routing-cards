@@ -302,7 +302,7 @@ test('tier-1 exhausted subscriptions offer the first unmeasured metered route, w
   assert.equal(buildSpawn(d, {}), undefined); assert.equal(d.spawn, null);
   assert.ok(buildApproval(d, {}).spawnArgv.includes(d.model));
   assert.equal(d.reasoning, 'high');
-  const approved = choose({ kind: 'quick-edit', spendApproved: true }, { limits });
+  const approved = choose({ kind: 'quick-edit', approvedRoutes: ['fw-deepseek-v4p1-flash'] }, { limits });
   assert.equal(approved.route, d.route); assert.equal(approved.status, 'ok'); assert.equal(approved.spendApproved, true);
   assert.equal(choose({ kind: 'quick-edit' }, { limits: { muse: '2026-10-05' } }).route, 'luna');
 });
@@ -332,11 +332,11 @@ test('explicit metered repo/file routes require approval; disabled OpenRouter ro
     assert.deepEqual(d.costPer1M, { in: null, out: null });
   }
   for (const route of ['or-gemini-flash', 'or-gemini-pro']) {
-    const d = choose({ spendApproved: true }, { override: override(route) });
+    const d = choose({ approvedRoutes: [route] }, { override: override(route) });
     assert.notEqual(d.route, route);
     assert.ok(d.alternatives.some(a => a.route === route && a.rejected === policy.routes[route].disabled));
   }
-  const external = choose({ kind: 'user-facing-copy', spendApproved: true }, { repo: 'srbryers/prelude-social-skills-coach' });
+  const external = choose({ kind: 'user-facing-copy', approvedRoutes: ['gemini-copy'] }, { repo: 'srbryers/prelude-social-skills-coach' });
   assert.equal(external.status, 'external'); assert.equal(external.requiresSpendApproval, true);
 });
 test('a metered OpenAI model cannot review OpenAI-authored work', () => {

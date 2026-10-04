@@ -132,14 +132,21 @@ Metered Pi routes cost money on every call. They are last fallbacks only when
 quota stops or cooldowns exhaust the subscriptions; repo/file rules can also
 request them explicitly. A paid choice returns `needs_approval` with `spawn: null`
 and `approval: { spawnArgv, costPer1M, route }` for review. Re-run pick with
-`--spend-approved` to get runnable `spawn.argv`. Prices are USD per million tokens;
-null means unknown. **This approval flag is blanket:** it is not tied to a route
-or price and includes unknown prices. Pass it only for the specific decision
-Sebastian approved (or whose task brief explicitly grants that spend). Recheck
-the route and costs on the new decision. The log records the flag. Picking never
-starts a worker or makes a paid call.
-OpenRouter routes are disabled until their credit is topped up. Gemini CLI no
-longer serves personal accounts, so there is no Gemini subscription route.
+`--spend-approved gemini-flash` (or a comma-separated list of approved route IDs)
+to get runnable `spawn.argv`. A bare flag is a usage error: name the approved route.
+If a cooldown or policy change selects another paid route, approval is required
+again. The log records `approvedRoutes`, the selected `route`, and whether it was
+covered. Approval is route-bound, not a price cap; null prices mean unknown, not
+free. Pass only routes whose spend the user approved or the task brief grants.
+Picking never starts a worker or makes a paid call.
+
+Gemini-specific work can use `gemini-pro`, `gemini-flash` or `gemini-flash-lite`
+through `acp-gemini`. This is Gemini CLI on Vertex AI, billed per token to a Google
+Cloud project, on Mac Studio only. Reasoning is managed by the agent (`medium`).
+Vertex prices are unverified. These routes are **not general coding fallbacks**
+and do not appear in `quota.meteredFallback`. OpenRouter Gemini routes stay
+disabled fallbacks, behind the acp-gemini options. No Gemini subscription route
+is configured.
 See [metered routing](policy/README.md#metered-routes).
 
 ## Record

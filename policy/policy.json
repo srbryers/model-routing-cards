@@ -93,13 +93,6 @@
       "vendor": "google",
       "pool": "metered"
     },
-    "gemini-visual": {
-      "type": "external",
-      "instruction": "Gemini Flash implements this narrowly scoped visual task. Astra reasons and directs; see `~/.claude/skills/gemini-ui-design/SKILL.md`.",
-      "requiresSpendApproval": true,
-      "vendor": "google",
-      "pool": "metered"
-    },
     "openai-image": {
       "type": "external",
       "instruction": "Generate with OpenAI image generation.",
@@ -261,6 +254,54 @@
         "medium",
         "high"
       ]
+    },
+    "gemini-pro": {
+      "type": "bb",
+      "provider": "acp-gemini",
+      "model": "gemini-3.1-pro-preview",
+      "pool": "metered",
+      "vendor": "google",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "supportedReasoning": [
+        "medium"
+      ],
+      "costPer1M": null,
+      "note": "Tested on mac-studio only. Gemini CLI on Vertex AI bills per token to a Google Cloud project. Vertex prices are unverified. OpenRouter list prices were $0.75/$3.75 per 1M input/output tokens for Flash and $2/$12 for Pro, as a reference only; these are not Vertex prices."
+    },
+    "gemini-flash": {
+      "type": "bb",
+      "provider": "acp-gemini",
+      "model": "gemini-3.8-flash",
+      "pool": "metered",
+      "vendor": "google",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "supportedReasoning": [
+        "medium"
+      ],
+      "costPer1M": null,
+      "note": "Tested on mac-studio only. Gemini CLI on Vertex AI bills per token to a Google Cloud project. Vertex prices are unverified. OpenRouter list prices were $0.75/$3.75 per 1M input/output tokens for Flash and $2/$12 for Pro, as a reference only; these are not Vertex prices."
+    },
+    "gemini-flash-lite": {
+      "type": "bb",
+      "provider": "acp-gemini",
+      "model": "gemini-3.5-flash-lite",
+      "pool": "metered",
+      "vendor": "google",
+      "machines": [
+        "mac-studio"
+      ],
+      "requiresSpendApproval": true,
+      "supportedReasoning": [
+        "medium"
+      ],
+      "costPer1M": null,
+      "note": "Tested on mac-studio only. Gemini CLI on Vertex AI bills per token to a Google Cloud project. Vertex prices are unverified. OpenRouter list prices were $0.75/$3.75 per 1M input/output tokens for Flash and $2/$12 for Pro, as a reference only; these are not Vertex prices."
     },
     "or-gemini-flash": {
       "type": "bb",
@@ -789,7 +830,7 @@
           ],
           "source": ".claude/rules/sprint-protocol.md",
           "why": "Implementation must receive independent review.",
-          "note": "Independent review of every implementation (Gate 5). An author never approves its own change. Gemini via OpenRouter in Pi (`or-gemini-flash`) can replace the external gemini routes once OpenRouter credit is topped up."
+          "note": "Independent review of every implementation (Gate 5). An author never approves its own change."
         },
         {
           "kinds": [
@@ -797,7 +838,8 @@
           ],
           "route": "gemini-copy",
           "source": "CLAUDE.md",
-          "why": "Agents must not write user-facing copy; simple declarative strings are quick-edit."
+          "why": "Agents must not write user-facing copy; simple declarative strings are quick-edit.",
+          "note": "Gemini via acp-gemini (`gemini-flash`), for drafting when content_draft.py is not the tool for the job; check CLAUDE.md first."
         },
         {
           "kinds": [
@@ -842,9 +884,10 @@
           "kinds": [
             "visual-implementation"
           ],
-          "route": "gemini-visual",
+          "route": "gemini-flash",
           "source": "~/.claude/skills/gemini-ui-design/SKILL.md",
-          "why": "Gemini implements settled visual tasks under Astra direction."
+          "why": "Gemini via acp-gemini implements narrowly scoped visual tasks with a settled design. Astra reasons and directs.",
+          "note": "Astra reasons and directs; keep visual implementation narrowly scoped."
         },
         {
           "kinds": [

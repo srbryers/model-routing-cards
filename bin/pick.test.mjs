@@ -193,14 +193,14 @@ test('CLI metered fallback exits 5 with preview only, then records explicit appr
   assert.deepEqual(last(h).approval.costPer1M, { in: 0.3, out: 1.2 });
   assert.equal(last(h).approval.route, 'fw-deepseek-v4p1-flash');
   assert.deepEqual(last(h).costPer1M, { in: 0.3, out: 1.2 });
-  assert.equal(await main(['pick', ...args, '--spend-approved'], h), 0);
+  assert.equal(await main(['pick', ...args, '--spend-approved', 'fw-deepseek-v4p1-flash'], h), 0);
   const rows = readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.ok(last(h).spawn.argv.includes('quoted title')); assert.equal(last(h).approval, undefined);
   assert.equal(rows[0].approval.spawnArgv, undefined);
   assert.ok(!JSON.stringify(rows).includes('quoted title'));
   assert.deepEqual(rows.map(d => d.spendApproved), [false, true]);
   assert.deepEqual(rows.map(d => d.status), ['needs_approval', 'ok']);
-  assert.equal(await runPick([...args.filter(a => a !== '--json'), '--spend-approved'], { ...h, isTTY: true }), 0);
+  assert.equal(await runPick([...args.filter(a => a !== '--json'), '--spend-approved', 'fw-deepseek-v4p1-flash'], { ...h, isTTY: true }), 0);
   assert.match(h.output.at(-1), /Cost per 1M tokens \(USD\): in 0.3, out 1.2; spend approved: true/);
 });
 
@@ -225,12 +225,49 @@ test('strict quota permits configured local work with no quota and logs its loca
   assert.equal(last(h).route, 'pi-local'); assert.equal(last(h).model, 'private-local-model');
   assert.ok(readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').includes('private-local-model'));
 });
-test('blanket spend approval also permits an explicit route with unknown prices', async t => {
+test('named spend approval permits the explicit route with unknown prices', async t => {
   const h = harness(t, { loadOverride: () => ({ policyVersion: 1, rules: [
     { kinds: ['quick-edit'], route: 'fw-kimi-k3', source: 'fixture', why: 'explicit choice' },
   ] }) });
   assert.equal(await runPick(['--kind', 'quick-edit'], h), 5);
   assert.equal(last(h).spawn, null); assert.deepEqual(last(h).approval.costPer1M, { in: null, out: null });
-  assert.equal(await runPick(['--kind', 'quick-edit', '--spend-approved'], h), 0);
+  assert.equal(await runPick(['--kind', 'quick-edit', '--spend-approved', 'fw-kimi-k3'], h), 0);
   assert.ok(last(h).spawn.argv.includes('high')); assert.equal(last(h).reasoning, 'high');
+});
+
+test('approval is bound to named routes when the previous choice hits a cooldown', async t => {
+  const h = harness(t);
+  await runLimit(['muse'], h); await runLimit(['luna'], h);
+  assert.equal(await runPick(['--kind', 'quick-edit'], h), 5);
+  assert.equal(last(h).route, 'fw-deepseek-v4p1-flash');
+  await runLimit(['fw-deepseek-v4p1-flash'], h);
+  assert.equal(await runPick(['--kind', 'quick-edit', '--spend-approved', 'fw-deepseek-v4p1-flash'], h), 5);
+  const d = last(h); assert.equal(d.route, 'fw-minimax-m3'); assert.equal(d.spawn, null);
+  assert.ok(d.why.includes('approval covers fw-deepseek-v4p1-flash; selected fw-minimax-m3'));
+  assert.equal(d.spendApproved, false); assert.deepEqual(d.approvedRoutes, ['fw-deepseek-v4p1-flash']);
+  assert.equal(await runPick(['--kind', 'quick-edit', '--spend-approved', 'fw-deepseek-v4p1-flash,fw-minimax-m3'], h), 0);
+  assert.equal(last(h).route, 'fw-minimax-m3'); assert.ok(last(h).spawn.argv);
+  const rows = readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(rows.at(-1).approvedRoutes, ['fw-deepseek-v4p1-flash', 'fw-minimax-m3']);
+  assert.equal(rows.at(-1).route, 'fw-minimax-m3');
+});
+test('approval syntax rejects bare, empty and unknown routes before any external reads', async t => {
+  const h = harness(t, { repoKey: () => assert.fail('invalid flags must not read git'), readQuota: () => assert.fail('invalid flags must not read quota') });
+  for (const args of [['--spend-approved'], ['--spend-approved', '--json'],
+    ['--spend-approved', 'unknown'], ['--spend-approved', ','], ['--spend-approved', 'gemini-flash,']]) {
+    assert.equal(await main(['pick', '--kind', 'quick-edit', ...args], h), 2);
+    assert.match(h.output.at(-1), /name the approved route/);
+  }
+});
+test('Prelude Gemini visual CLI requires approval for that route, leaving external copy unchanged', async t => {
+  const h = harness(t, { repoKey: () => 'srbryers/prelude-social-skills-coach' });
+  const args = ['--kind', 'visual-implementation', '--no-quota'];
+  assert.equal(await runPick(args, h), 5);
+  assert.equal(last(h).route, 'gemini-flash'); assert.equal(last(h).provider, 'acp-gemini');
+  assert.equal(last(h).reasoning, 'medium'); assert.equal(last(h).approval.costPer1M, null); assert.equal(last(h).spawn, null);
+  assert.equal(await runPick([...args, '--spend-approved', 'gemini-pro'], h), 5);
+  assert.equal(await runPick([...args, '--spend-approved', 'gemini-flash'], h), 0);
+  assert.ok(last(h).spawn.argv.includes('acp-gemini'));
+  assert.equal(await runPick(['--kind', 'user-facing-copy', '--spend-approved', 'gemini-flash'], h), 0);
+  assert.equal(last(h).status, 'external'); assert.equal(last(h).route, 'gemini-copy');
 });
