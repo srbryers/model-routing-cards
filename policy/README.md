@@ -219,8 +219,9 @@ a selected route do not enter the table. `--kind` filters the summary; `--json`
 returns the same counts, thresholds, readiness and next steps as structured data.
 
 A kind is ready when at least `minRoutes` routes each have
-`minOutcomesPerRoute` recorded outcomes. All four result types count, including
-abandoned work. Re-recording replaces the old line in the summary, so one decision
+`minOutcomesPerRoute` outcomes whose result is `pass`, `partial` or `fail`.
+Abandoned work stays in its own column and does not count toward readiness.
+Re-recording replaces the old line in the summary, so one decision
 never adds two outcomes. Last append wins, even if its timestamp is older.
 Readiness is shown for kinds seen in the decision log, or the requested `--kind`.
 

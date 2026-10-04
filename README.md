@@ -152,8 +152,9 @@ last appended line per decision. Unknown IDs and decisions without a route exit
 **Field outcomes are not a measurement and never feed the trust gate.** Different
 tasks went to different routes, so the counts cannot tell which route is better.
 Outcomes stay separate from bake-off receipts. The summary shows counts and basis
-splits, then says where a real bake-off is worth running: by default, **5 outcomes
-on each of at least 2 routes**. It gives a task-file next step, never a winner.
+splits, then says where a real bake-off is worth running: by default, **5 non-abandoned
+outcomes on each of at least 2 routes**. Abandoned outcomes stay in their own column
+and do not count toward readiness. It gives a task-file next step, never a winner.
 
 ## Read That Card
 

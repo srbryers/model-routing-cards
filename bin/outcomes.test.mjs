@@ -219,15 +219,16 @@ test('re-record uses latest appended line, not timestamp; basis counts remain pe
   assert.deepEqual(row.outcomeBasis, { trial: 0, policy: 1, card: 0, 'card-cheaper': 0 });
 });
 
-test('readiness needs enough outcomes on each route, regardless of result; kind filter and task mapping', async t => {
+test('readiness counts pass, partial and fail, but excludes abandoned outcomes', async t => {
   const h = harness(t);
   for (const kind of ['multi-step-coding', 'quick-edit']) {
     for (const route of ['astra', 'sonnet']) {
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 6; i++) {
         const id = `${kind}_${route}_${i}`;
         decision(h, { id, kind, route, basis: i % 2 ? 'trial' : 'policy' });
-        if (kind === 'quick-edit' && route === 'sonnet' && i === 4) continue;
-        assert.equal(await main(['record', id, '--result', ['pass', 'partial', 'fail', 'abandoned', 'pass'][i]], h), 0);
+        const result = kind === 'quick-edit' && route === 'sonnet' && i === 5
+          ? 'abandoned' : ['pass', 'partial', 'fail', 'abandoned', 'pass', 'pass'][i];
+        assert.equal(await main(['record', id, '--result', result], h), 0);
       }
     }
   }
@@ -239,6 +240,10 @@ test('readiness needs enough outcomes on each route, regardless of result; kind 
   assert.match(summary.readiness[0].nextStep, /model-routing run tasks\/implementation.mjs --execute/);
   assert.equal(summary.readiness[0].card, loadPolicy().cards.byKind['multi-step-coding']);
   assert.equal(summary.rows[0].abandoned, 1);
+  const unfinished = summary.rows.find(r => r.kind === 'quick-edit' && r.route === 'sonnet');
+  assert.equal(unfinished.recordedOutcomes, 6);
+  assert.equal(unfinished.abandoned, 2);
+  assert.equal(unfinished.pass + unfinished.partial + unfinished.fail, 4);
   assert.equal(await main(['outcomes'], h), 0);
   assert.match(h.output.at(-1), /field outcomes — not a comparison/);
   assert.match(h.output.at(-1), /multi-step-coding: ready for a bake-off/);

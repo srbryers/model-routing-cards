@@ -119,7 +119,9 @@ export function summarizeOutcomes(decisions, outcomes, policy, kind) {
   const { minRoutes, minOutcomesPerRoute } = policy.fieldEvidence;
   const kinds = kind ? [kind] : [...new Set(decisions.map(d => d.kind).filter(Boolean))].sort();
   const readiness = kinds.map(kind => {
-    const qualifiedRoutes = rows.filter(row => row.kind === kind && row.recordedOutcomes >= minOutcomesPerRoute).map(row => row.route);
+    // ⚠ Abandoned work says nothing about completion; keep its count out of readiness.
+    const qualifiedRoutes = rows.filter(row => row.kind === kind
+      && row.pass + row.partial + row.fail >= minOutcomesPerRoute).map(row => row.route);
     const ready = qualifiedRoutes.length >= minRoutes;
     const card = policy.cards.byKind[kind] ?? null;
     const task = `tasks/${card ? basename(card).replace(/\.card\.json$/, '.mjs') : `${kind}.mjs`}`;
@@ -138,5 +140,5 @@ export function formatOutcomes(summary) {
   return `${summary.label}\n${table.map(row => row.map((cell, i) => cell.padEnd(widths[i])).join('  ').trimEnd()).join('\n')}\n`
     + Object.entries(summary.unreadableLogLines ?? {}).filter(([, count]) => count).map(([log, count]) => `Skipped ${count} unreadable ${log} log lines.\n`).join('')
     + 'Basis: T=trial, P=policy, C=card, CC=card-cheaper. Different tasks; counts do not establish route quality.\n'
-    + (summary.readiness.length ? summary.readiness.map(r => `${r.kind}: ${r.ready ? 'ready for a bake-off' : 'not ready for a bake-off'} — ${r.qualifiedRoutes.length}/${summary.thresholds.minRoutes} routes with at least ${summary.thresholds.minOutcomesPerRoute} outcomes each.${r.nextStep ? `\nNext: ${r.nextStep}` : ''}\n`).join('') : 'No decisions recorded.\n');
+    + (summary.readiness.length ? summary.readiness.map(r => `${r.kind}: ${r.ready ? 'ready for a bake-off' : 'not ready for a bake-off'} — ${r.qualifiedRoutes.length}/${summary.thresholds.minRoutes} routes with at least ${summary.thresholds.minOutcomesPerRoute} non-abandoned outcomes each.${r.nextStep ? `\nNext: ${r.nextStep}` : ''}\n`).join('') : 'No decisions recorded.\n');
 }
