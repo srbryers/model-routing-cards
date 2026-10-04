@@ -411,7 +411,7 @@ test('every CLI call gets its own empty workdir, and both directories are remove
   ];
   for (const [label, reply] of cases) {
     const seen = [];
-    const spawn = fakeSpawn((cmd, args, opts) => {
+    const spawn = fakeSpawn((_cmd, _args, opts) => {
       /* At call time the workdir exists and is empty. */
       assert.deepEqual(readdirSync(opts.cwd), [], `${label} workdir starts empty`);
       writeFileSync(join(opts.cwd, 'left-behind.txt'), 'from an earlier run');
