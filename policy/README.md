@@ -4,11 +4,16 @@ Choose the cheapest capable tier, then the provider with the most quota headroom
 `policy.json` is the active policy; `routing-profile.md` is the earlier draft and
 its open questions. Benchmark evidence does not change policy by itself.
 
-- **Route:** a model to run or an external instruction to follow.
+- **Route:** a worker to run, or an outside instruction to follow.
 - **Pool:** quota shared by one or more routes.
 - **Tier:** a cost and capability level.
 - **Kind:** the category assigned to a task.
 - **Candidate:** an eligible route offered for selection.
+- **Fallback:** the next route to try when the first choice is unavailable.
+- **Basis:** the reason a route was chosen: policy, trial, card or card-cheaper.
+- **Trial:** a choice between two tied routes that alternates each time, so both gather evidence.
+- **External route:** work handed to a tool outside the worker pool, with an instruction instead of spawn arguments.
+- **Override:** a repo's own rule that replaces the shared policy for some kinds of work.
 
 | Section | Meaning |
 | --- | --- |
@@ -63,14 +68,14 @@ to be added to those repos. For an optional local override, put
 `machines` and each rule's `reasoning` are optional. `rules` may be empty. A rule
 needs `kinds`, `source`, `why`, and at least one of `route`, `excludeRoutes`, `note`.
 `kinds: ["*"]` targets every kind; do not mix `*` with named kinds. A specific
-route rule wins over a wildcard route within the same source. All matching
+route rule wins over a rule that covers every kind (`kinds: ["*"]`) within the same source. All matching
 exclusions accumulate across both sources; a file cannot re-enable an excluded
 route. Exclusions that remove every applicable route are invalid. Route IDs
 and exclusion entries must be strings. Matching notes are deduplicated and joined into each candidate's `note`.
 Machine precedence is file → central repo entry → all policy machines. A supplied
 list replaces the inherited list and restricts every candidate. Each kind may
-appear in only one rule within each source. Source paths are provenance
-text, never read. An override route must run on at least one allowed repo machine.
+appear in only one rule within each source. Source paths only name where a rule came from; they are never
+read as files. An override route must run on at least one allowed repo machine.
 
 For each kind, order is **repo file → `repos[owner/name]` → tier rules**. A file
 rule wins over a central rule for that kind; unmatched kinds keep central rules.
@@ -96,7 +101,7 @@ The central entries encode the supplied rules without reading other repos:
 - Flora Studio uses Astra for `3d-work` and Luna for both ordinary review kinds.
   Classify 3D review as `3d-work` to preserve its all-3D rule.
 - Prelude has explicit copy, visual, image, implementation and review rules; a
-  wildcard note preserves Gate 5 independent review for every kind. The routine
+  note covering every kind preserves Gate 5 independent review for every kind. The routine
   review, multi-step coding, UI and architecture mappings are Sebastian's readings
   of the repo role list, not verbatim rules; their `why` fields say so.
 - UI Kit excludes Muse for all kinds and carries the kit-curator gate note.
