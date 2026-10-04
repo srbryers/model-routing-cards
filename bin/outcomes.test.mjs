@@ -407,3 +407,33 @@ test('summary skips invalid results and bases, counts them unreadable and keeps 
   assert.equal(await main(['outcomes'], h), 0);
   assert.match(h.output.at(-1), /Skipped 4 unreadable outcomes log lines/);
 });
+
+test('record and outcomes use the last duplicate decision, including its metadata and brief hash', async t => {
+  let requests = 0;
+  const h = harness(t, { readKey: () => 'test', fetchImpl: async () => { requests++; return response(); } });
+  decision(h);
+  const newerBrief = 'Corrected brief';
+  decision(h, { at: '2026-10-03T18:00:00Z', kind: 'multi-step-coding', route: 'astra',
+    basis: 'trial', repo: 'corrected/repo' }, newerBrief);
+  assert.equal(await main(record, h), 0);
+  assert.equal(last(h).kind, 'multi-step-coding');
+  assert.equal(last(h).route, 'astra');
+  assert.equal(last(h).basis, 'trial');
+  assert.equal(last(h).repo, 'corrected/repo');
+  assert.equal(await main([...record, ...files(h), '--execute'], h), 2);
+  assert.match(h.output.at(-1), /Brief hash does not match/);
+  assert.equal(requests, 0);
+  assert.equal(await main([...record, ...files(h, newerBrief), '--execute'], h), 0);
+  assert.equal(requests, 1);
+  assert.equal(await main(['outcomes', '--json'], h), 0);
+  assert.equal(last(h).rows.length, 1);
+  const row = last(h).rows[0];
+  assert.equal(row.kind, 'multi-step-coding'); assert.equal(row.route, 'astra');
+  assert.equal(row.decisions, 1); assert.equal(row.recordedOutcomes, 1);
+  assert.equal(row.decisionBasis.trial, 1); assert.equal(row.outcomeBasis.trial, 1);
+  assert.deepEqual(last(h).readiness.map(r => r.kind), ['multi-step-coding']);
+  decision(h, { status: 'blocked', route: undefined, basis: undefined });
+  assert.equal(await main(record, h), 2);
+  assert.equal(await main(['outcomes', '--json'], h), 0);
+  assert.deepEqual(last(h).rows, []);
+});

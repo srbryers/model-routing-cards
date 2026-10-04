@@ -223,6 +223,8 @@ A kind is ready when at least `minRoutes` routes each have
 Abandoned work stays in its own column and does not count toward readiness.
 Re-recording replaces the old line in the summary, so one decision
 never adds two outcomes. Last append wins, even if its timestamp is older.
+If the decision log repeats an ID, both commands use its last appended decision,
+including that decision's metadata and brief hash.
 Readiness is shown for kinds seen in the decision log, or the requested `--kind`.
 
 When ready, write or extend `tasks/<task-id>.mjs`, using the task ID from the

@@ -10,6 +10,8 @@ import { readJevKey } from './jev-key.mjs';
 export const FIELD_LABEL = 'field outcomes — not a comparison';
 const RESULTS = ['pass', 'partial', 'fail', 'abandoned'];
 const BASES = ['trial', 'policy', 'card', 'card-cheaper'];
+// ⚠ Log corrections follow append order, including corrections to decision metadata.
+const latestDecisions = decisions => new Map(decisions.map(decision => [decision.id, decision]));
 
 export function validateGates(gates) {
   if (!gates || typeof gates !== 'object' || Array.isArray(gates)
@@ -73,7 +75,7 @@ export async function recordOutcome({ decisionId, result, gates = {}, failuresBe
   if (typeof notes !== 'string' || [...notes].length > 500) throw new TypeError('--notes must be at most 500 characters');
   if (!Number.isFinite(limitUsd) || limitUsd < 0) throw new TypeError('--jev-limit-usd must be a nonnegative number');
   if (execute && (!briefFile || !resultFile)) throw new TypeError('--execute requires --brief-file and --result-file');
-  const decision = await withStateLock(stateDir, () => readDecisions(stateDir).find(d => d.id === decisionId));
+  const decision = await withStateLock(stateDir, () => latestDecisions(readDecisions(stateDir)).get(decisionId));
   if (!decision) throw new TypeError(`Unknown decision id: ${decisionId}`);
   if (!decision.kind || !decision.route || !decision.basis) throw new TypeError('Decision did not select a route');
   let jev;
@@ -104,15 +106,13 @@ export function summarizeOutcomes(decisions, outcomes, policy, kind) {
     unreadableLogLines.outcomes++;
     return false;
   });
-  decisions = decisions.filter(decision => {
-    if (!decision?.route || BASES.includes(decision.basis)) return true;
-    unreadableLogLines.decisions++;
-    return false;
-  });
+  const validDecision = decision => !decision.route || BASES.includes(decision.basis);
+  unreadableLogLines.decisions = decisions.filter(decision => !validDecision(decision)).length;
+  decisions = [...latestDecisions(decisions).values()].filter(validDecision);
   // ⚠ Append order, not caller timestamps, defines the latest correction.
   const latest = new Map(outcomes.map(outcome => [outcome.decisionId, outcome]));
   const grouped = new Map();
-  for (const decision of new Map(decisions.map(d => [d.id, d])).values()) {
+  for (const decision of decisions) {
     if (!decision.route || (kind && decision.kind !== kind)) continue;
     const key = `${decision.kind}/${decision.route}`;
     if (!grouped.has(key)) grouped.set(key, { kind: decision.kind, route: decision.route,
