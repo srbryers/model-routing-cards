@@ -44,7 +44,7 @@ function checks(errors) {
 
 function capFor(id, route) {
   // ⚠ A renamed Sonnet route must not bypass its token-use cap.
-  return sonnet(id, route) ? 'high' : route?.maxReasoning;
+  return sonnet(id, route) ? 'xhigh' : route?.maxReasoning;
 }
 
 function checkRouteReasoning(ids, level, routes, path, check) {
@@ -99,6 +99,22 @@ export function validatePolicy(policy) {
   check(pools.claude?.requiredProvider === 'claude-code', 'pools.claude.requiredProvider must be claude-code');
   for (const [id, route] of Object.entries(routes)) {
     const path = `routes.${id}`;
+    for (const [field, value] of [['id', id], ['model', route?.model], ['provider', route?.provider]]) {
+      check(!/contributor/i.test(value ?? ''), `${path}.${field}: contributor routes are forbidden`);
+    }
+    if (route?.vendor === 'anthropic' || /^claude/i.test(route?.model ?? '')
+      || route?.provider === 'claude-code' || route?.pool === 'claude') {
+      check(route?.provider === 'claude-code' && route?.pool === 'claude'
+        && route?.vendor === 'anthropic' && /^claude/i.test(route?.model ?? ''),
+      `${path}: Claude requires a claude model, provider claude-code, pool claude and vendor anthropic`);
+    }
+    if (route?.provider === 'codex' || route?.pool === 'codex') {
+      check(route?.provider === 'codex' && route?.pool === 'codex' && route?.vendor === 'openai',
+        `${path}: codex provider and pool must agree with vendor openai`);
+    }
+    if (route?.provider === 'acp-muse' || route?.pool === 'muse') {
+      check(route?.provider === 'acp-muse' && route?.pool === 'muse', `${path}: acp-muse provider and muse pool must agree`);
+    }
     if (route?.type === 'external') {
       if (!fields(route, path, ['type', 'instruction', 'requiresSpendApproval', 'vendor', 'pool'])) continue;
       check(nonempty(route.instruction), `${path}.instruction is required`);
@@ -112,7 +128,6 @@ export function validatePolicy(policy) {
     check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
     check(nonempty(route.model), `${path}.model is required`);
-    check(!String(route.model).includes('-contributor'), `${path}.model: -contributor models are forbidden`);
     list(route.machines, `${path}.machines`, Object.keys(machines), 1);
     check(has(pools, route.pool), `${path}.pool: unknown pool ${route.pool}`);
     check(['anthropic', 'openai', 'meta', 'local', 'google'].includes(route.vendor), `${path}.vendor is unsupported`);
@@ -120,7 +135,7 @@ export function validatePolicy(policy) {
     check(!requiredProvider || route.provider === requiredProvider, `${path}: pool ${route.pool} requires provider ${requiredProvider}`);
     if (muse(id, route)) check(Array.isArray(route.machines) && route.machines.every(m => m === 'mac-studio'), `${path}: Muse is mac-studio only`);
     if (has(route, 'maxReasoning')) reasoning(route.maxReasoning, `${path}.maxReasoning`);
-    if (sonnet(id, route)) check(route.maxReasoning === 'high', `${path}: Sonnet maxReasoning must be high`);
+    if (sonnet(id, route)) check(route.maxReasoning === 'xhigh', `${path}: Sonnet maxReasoning must be xhigh`);
     if (has(route, 'runningByDefault')) check(typeof route.runningByDefault === 'boolean', `${path}.runningByDefault must be boolean`);
     if (route.runningByDefault === false || has(route, 'livenessCheck')) check(nonempty(route.livenessCheck), `${path}.livenessCheck is required`);
   }
@@ -138,17 +153,30 @@ export function validatePolicy(policy) {
   for (const id of ['1', '2', '3']) check(has(tiers, id), `tiers.${id} is required`);
   for (const [id, entry] of Object.entries(tiers)) {
     check(['1', '2', '3'].includes(id), `tiers: unsupported tier ${id}`);
-    if (fields(entry, `tiers.${id}`, ['candidates', 'fallbacks', 'reasoning'])) selection(entry, `tiers.${id}`);
+    if (fields(entry, `tiers.${id}`, ['candidates', 'fallbacks', 'reasoning'])) {
+      for (const route of selection(entry, `tiers.${id}`)) {
+        check(routes[route]?.type !== 'external', `tiers.${id}: external route ${route} is not allowed in a tier`);
+      }
+    }
   }
   for (const id of KIND_IDS) check(has(kinds, id), `kinds.${id} is required`);
   for (const [id, entry] of Object.entries(kinds)) {
     const path = `kinds.${id}`;
     check(KIND_IDS.includes(id), `unknown kind ${id}`);
     if (!fields(entry, path, ['tier', 'reasoning', 'description', 'candidates', 'fallbacks'],
-      ['excludedRoutes', 'fallbackReasoning', 'tool', 'alternativeTool'])) continue;
+      ['excludedRoutes', 'fallbackReasoning', 'tool', 'alternativeTool', 'crossTier', 'crossTierReason'])) continue;
     check([1, 2, 3, 'local', 'image'].includes(entry.tier), `${path}.tier is unsupported`);
     check(nonempty(entry.description), `${path}.description is required`);
     const ids = selection(entry, path, ['local', 'image'].includes(entry.tier));
+    if (has(entry, 'crossTier')) check(typeof entry.crossTier === 'boolean', `${path}.crossTier must be boolean`);
+    if (entry.crossTier === true) check(nonempty(entry.crossTierReason), `${path}.crossTierReason is required`);
+    else {
+      const tier = tiers[entry.tier];
+      const allowed = [...(Array.isArray(tier?.candidates) ? tier.candidates : []),
+        ...(Array.isArray(tier?.fallbacks) ? tier.fallbacks : [])];
+      check(ids.every(route => allowed.includes(route)), `${path}: routes must belong to tier ${entry.tier}; otherwise declare crossTier with a reason`);
+      check(!has(entry, 'crossTierReason'), `${path}.crossTierReason requires crossTier: true`);
+    }
     const excluded = has(entry, 'excludedRoutes') ? routeList(entry.excludedRoutes, `${path}.excludedRoutes`) : [];
     check(!ids.some(r => excluded.includes(r)), `${path}: excluded route appears in candidates or fallbacks`);
     if (id === 'skill-workflow') {
@@ -228,7 +256,7 @@ export function validatePolicy(policy) {
   // ⚠ Reuse rule validation only after its route/kind dependencies are valid.
   if (errors.length === 0) {
     for (const [repo, entry] of Object.entries(policy.repos)) {
-      check(parseRepoUrl(`https://github.com/${repo}`) === repo, `repos: invalid GitHub repo key ${repo}`);
+      check(normalizeRepo(repo) === repo, `repos: invalid GitHub repo key ${repo}`);
       errors.push(...validateRules(entry, policy, false).errors.map(e => `repos.${repo}: ${e}`));
     }
   }
@@ -261,8 +289,12 @@ function validateRules(override, policy, versioned) {
       check(!seen.has(kind), `${path}: duplicate rule for kind ${String(kind)}`);
       seen.add(kind);
     }
-    if (has(rule, 'route')) check(has(policy.routes, rule.route), `${path}: unknown route id ${rule.route}`);
+    if (has(rule, 'route')) {
+      check(typeof rule.route === 'string', `${path}.route must be a string`);
+      check(has(policy.routes, rule.route), `${path}: unknown route id ${rule.route}`);
+    }
     const excludes = has(rule, 'excludeRoutes') ? list(rule.excludeRoutes, `${path}.excludeRoutes`, Object.keys(policy.routes)) : [];
+    for (const route of excludes) check(typeof route === 'string', `${path}.excludeRoutes entries must be strings`);
     if (has(rule, 'note')) check(nonempty(rule.note), `${path}.note must be a nonempty string`);
     check(has(rule, 'route') || excludes.length > 0 || nonempty(rule.note), `${path}: supply route, excludeRoutes or note`);
     check(nonempty(rule.source), `${path}.source is required`);
@@ -282,6 +314,15 @@ function validateRules(override, policy, versioned) {
         && !(kind === 'skill-workflow' && muse(rule.route, route)), `${path}: ${rule.route} is excluded for ${kind}`);
     }
   }
+  if (errors.length === 0) {
+    for (const [kind, entry] of Object.entries(policy.kinds)) {
+      const matching = override.rules.filter(r => r.kinds.includes(kind) || r.kinds.includes('*'));
+      const excluded = new Set(matching.flatMap(r => r.excludeRoutes ?? []));
+      const preferred = matching.find(r => r.route && r.kinds.includes(kind)) ?? matching.find(r => r.route);
+      const choices = [...entry.candidates, ...entry.fallbacks, ...(preferred ? [preferred.route] : [])];
+      check(!choices.every(route => excluded.has(route)), `override: exclusions remove every route for ${kind}`);
+    }
+  }
   return { ok: errors.length === 0, errors };
 }
 
@@ -296,9 +337,32 @@ function freeze(value) {
   return value;
 }
 
+function parseUniqueJson(text) {
+  const value = JSON.parse(text);
+  // ⚠ JSON.parse accepts duplicate keys. Scan valid JSON before trusting its result,
+  // comparing decoded keys so escaped spellings cannot hide a duplicate.
+  const stack = [];
+  const tokens = /"(?:\\.|[^"\\])*"|[{}\[\],]/gs;
+  for (const match of text.matchAll(tokens)) {
+    const token = match[0];
+    if (token === '{') stack.push({ keys: new Set(), key: true });
+    else if (token === '[') stack.push(null);
+    else if (token === '}' || token === ']') stack.pop();
+    else if (token === ',') { if (stack.at(-1)) stack.at(-1).key = true; }
+    else if (stack.at(-1)?.key) {
+      const frame = stack.at(-1);
+      const key = JSON.parse(token);
+      if (frame.keys.has(key)) throw new SyntaxError(`Duplicate JSON key ${JSON.stringify(key)} at offset ${match.index}`);
+      frame.keys.add(key);
+      frame.key = false;
+    }
+  }
+  return value;
+}
+
 /** Synchronous JSON loaders; source paths in rules are never opened. */
 export function loadPolicy(path = new URL('../policy/policy.json', import.meta.url)) {
-  const policy = JSON.parse(readFileSync(path, 'utf8'));
+  const policy = parseUniqueJson(readFileSync(path, 'utf8'));
   assertValid(validatePolicy(policy), 'policy');
   return freeze(policy);
 }
@@ -306,9 +370,16 @@ export function loadOverride(repoDir) {
   let contents;
   try { contents = readFileSync(join(repoDir, '.model-routing.json'), 'utf8'); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-  const override = JSON.parse(contents);
+  const override = parseUniqueJson(contents);
   assertValid(validateOverride(override, loadPolicy()), 'override');
   return freeze(override);
+}
+
+function normalizeRepo(repo) {
+  if (typeof repo !== 'string') return null;
+  const key = repo.trim().toLowerCase().replace(/\.git$/, '');
+  const match = /^([a-z\d](?:[a-z\d-]*[a-z\d])?)\/([a-z\d_.-]+)$/.exec(key);
+  return match && !['.', '..'].includes(match[2]) ? key : null;
 }
 
 /** Pure GitHub URL parser. Reject other hosts and ambiguous paths. */
@@ -325,9 +396,7 @@ export function parseRepoUrl(remote) {
       || url.search || url.hash) return null;
     path = url.pathname.slice(1);
   }
-  const match = /^([a-z\d](?:[a-z\d-]*[a-z\d])?)\/([a-z\d_.-]+?)(?:\.git)?\/?$/i.exec(path);
-  if (!match || ['.', '..'].includes(match[2])) return null;
-  return `${match[1]}/${match[2]}`.toLowerCase();
+  return normalizeRepo(path.replace(/\/$/, ''));
 }
 
 /** Local Git metadata only. Inject execFile for offline tests; never invokes a shell. */
@@ -341,7 +410,7 @@ export function repoKey(repoDir, { execFile = execFileSync } = {}) {
     if (error.status === 2 || (error.status === 128 && /not a git repository/i.test(String(error.stderr)))) return null;
     throw error;
   }
-  return parseRepoUrl(remote);
+  return parseRepoUrl(Buffer.isBuffer(remote) ? remote.toString('utf8') : remote);
 }
 
 export function kindsForClassifier(policy) {
@@ -356,54 +425,76 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
   if (override !== null) assertValid(validateOverride(override, policy), 'override');
   if (machine !== undefined && !has(policy.machines, machine)) throw new TypeError(`Unknown machine: ${machine}`);
   if (!Number.isInteger(failures) || failures < 0) throw new TypeError('failures must be a nonnegative integer');
-  if (repo !== null && typeof repo !== 'string') throw new TypeError('repo must be an owner/name string or null');
+  if (repo !== null) {
+    repo = normalizeRepo(repo);
+    if (repo === null) throw new TypeError('repo must be a valid owner/name string or null');
+  }
   const repoRules = has(policy.repos, repo) ? policy.repos[repo] : null;
   const entry = policy.kinds[kind];
-  const step = failures >= policy.escalation.escalateAfterFailures
-    ? policy.escalation.steps[entry.tier] : undefined;
+  const thresholdReached = failures >= policy.escalation.escalateAfterFailures;
+  const step = thresholdReached ? policy.escalation.steps[entry.tier] : undefined;
   const selection = step ? policy.tiers[step.tier] : entry;
+  const tier = step ? step.tier : entry.tier;
   const level = step ? step.reasoning : entry.reasoning;
-  const reason = step ? `${failures} failures: tier ${entry.tier} -> ${step.tier}` : `policy kind ${kind}, tier ${entry.tier}`;
+  const reason = step ? `${failures} failures: tier ${entry.tier} -> ${tier}` : `policy kind ${kind}, tier ${entry.tier}`;
   const proposed = [
-    ...selection.candidates.map(route => ({ route, reasoning: level, reason })),
-    ...selection.fallbacks.map(route => ({ route, reasoning: selection.fallbackReasoning ?? level, reason: `${reason}; fallback` })),
-  ];
+    ...selection.candidates.map(route => ({ route, reasoning: level, reason, fallback: false })),
+    ...selection.fallbacks.map(route => ({ route, reasoning: selection.fallbackReasoning ?? level,
+      reason: `${reason}; fallback`, fallback: true })),
+  ].map(candidate => ({ ...candidate, source: step ? 'tier' : 'kind', escalated: !!step }));
   const excluded = new Set(entry.excludedRoutes ?? []);
   const notes = [];
-  // ⚠ Repo instructions outrank tiers, including escalation. Hard constraints still apply.
-  for (const [rules, origin] of [[repoRules, `policy repo ${repo}`], [override, 'repo override']]) {
+  const blocked = [];
+  // ⚠ Keep repo preferences visible after failure, but mark them escalated and expose
+  // the next-tier candidates so pick can stop retrying the same failing route.
+  for (const [rules, source, origin] of [[repoRules, 'repo', `policy repo ${repo}`], [override, 'file', 'repo override']]) {
     const matching = rules?.rules.filter(r => r.kinds.includes(kind) || r.kinds.includes('*')) ?? [];
     for (const match of matching) {
       for (const id of match.excludeRoutes ?? []) excluded.add(id);
       if (match.note) notes.push(match.note);
     }
     const rule = matching.find(r => r.route && r.kinds.includes(kind)) ?? matching.find(r => r.route);
-    if (rule) proposed.unshift({ route: rule.route, reasoning: rule.reasoning ?? level,
-      reason: `${origin} ${rule.source}: ${rule.why}` });
+    for (const other of matching) {
+      if (other.route && other !== rule) blocked.push({ route: other.route, why: `${source} wildcard route replaced by specific rule for ${kind}` });
+    }
+    if (rule) {
+      for (const candidate of proposed) candidate.fallback = true;
+      proposed.unshift({ route: rule.route, reasoning: rule.reasoning ?? level, source,
+        escalated: thresholdReached, fallback: false, reason: `${origin} ${rule.source}: ${rule.why}` });
+    }
   }
   const allowed = override?.machines ?? repoRules?.machines ?? Object.keys(policy.machines);
-  if (machine !== undefined && !allowed.includes(machine)) return [];
   const note = [...new Set(notes)].join(' ');
-  const seen = new Set();
-  const result = [];
+  const seen = new Map();
+  const candidates = [];
   for (const candidate of proposed) {
     const id = candidate.route;
     const route = policy.routes[id];
-    if (seen.has(id) || excluded.has(id)
-      || (kind === 'skill-workflow' && muse(id, route))) continue;
-    if (route.type === 'external') {
-      seen.add(id);
-      result.push({ route: id, ...route, reason: candidate.reason, ...(note ? { note } : {}) });
+    if (excluded.has(id) || (kind === 'skill-workflow' && muse(id, route))) {
+      blocked.push({ route: id, why: `excluded for ${kind} by policy or matching repo/file rule` });
       continue;
     }
-    const machines = route.machines.filter(m => allowed.includes(m) && (machine === undefined || machine === m));
-    if (!machines.length) continue;
-    seen.add(id);
+    const external = route.type === 'external';
+    const machines = external ? [] : route.machines.filter(m => allowed.includes(m) && (machine === undefined || machine === m));
+    if ((machine !== undefined && !allowed.includes(machine)) || (!external && !machines.length)) {
+      blocked.push({ route: id, why: `machine limit: requested ${machine ?? 'any'}, repo allows ${allowed.join(', ')}, route allows ${external ? 'external instruction' : route.machines.join(', ')}` });
+      continue;
+    }
+    if (seen.has(id)) {
+      blocked.push({ route: id, why: `${candidate.source} candidate superseded by ${seen.get(id)} candidate for the same route` });
+      continue;
+    }
+    seen.set(id, candidate.source);
     const cap = capFor(id, route);
-    const capped = cap && LEVELS.indexOf(candidate.reasoning) > LEVELS.indexOf(cap);
-    result.push({ route: id, type: 'bb', provider: route.provider, model: route.model,
-      reasoning: capped ? cap : candidate.reasoning, machines, pool: route.pool, vendor: route.vendor,
-      reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : ''), ...(note ? { note } : {}) });
+    const capped = !external && cap && LEVELS.indexOf(candidate.reasoning) > LEVELS.indexOf(cap);
+    candidates.push({ route: id, type: external ? 'external' : 'bb',
+      provider: external ? null : route.provider, model: external ? null : route.model,
+      reasoning: external ? null : capped ? cap : candidate.reasoning, machines,
+      pool: route.pool, vendor: route.vendor, tier, source: candidate.source,
+      fallback: candidate.fallback, escalated: candidate.escalated,
+      reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : ''),
+      ...(external ? { instruction: route.instruction, requiresSpendApproval: route.requiresSpendApproval } : {}),
+      ...(note ? { note } : {}) });
   }
-  return result;
+  return { candidates, blocked };
 }

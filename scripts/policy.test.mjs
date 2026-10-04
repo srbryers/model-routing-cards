@@ -40,10 +40,9 @@ const badPolicies = [
   ['unsupported version', p => p.policyVersion = 2, /unsupported policyVersion/],
   ['unknown candidate route', p => p.kinds.docs.candidates = ['typo'], /candidates: unknown route id typo/],
   ['unknown fallback route', p => p.kinds.docs.fallbacks = ['typo'], /fallbacks: unknown route id typo/],
-  ['contributor model', p => p.routes.astra.model = 'muse-spark-contributor', /-contributor models are forbidden/],
-  ['Sonnet max', p => p.kinds['routine-review'].reasoning = 'max', /sonnet reasoning max exceeds cap high/],
-  ['Sonnet xhigh', p => p.kinds['routine-review'].reasoning = 'xhigh', /sonnet reasoning xhigh exceeds cap high/],
-  ['Sonnet cap removed', p => delete p.routes.sonnet.maxReasoning, /Sonnet maxReasoning must be high/],
+  ['contributor model', p => p.routes.astra.model = 'muse-spark-contributor', /contributor routes are forbidden/],
+  ['Sonnet max', p => p.kinds['routine-review'].reasoning = 'max', /sonnet reasoning max exceeds cap xhigh/],
+  ['Sonnet cap removed', p => delete p.routes.sonnet.maxReasoning, /Sonnet maxReasoning must be xhigh/],
   ['bad reasoning', p => p.kinds.docs.reasoning = 'ultra', /reasoning must be low\|medium\|high\|xhigh\|max/],
   ['missing reasoning', p => delete p.kinds.docs.reasoning, /reasoning is required/],
   ['null paid reasoning', p => p.kinds.docs.reasoning = null, /reasoning must be/],
@@ -103,8 +102,7 @@ const badOverrides = [
   ['PC-only Muse', () => ({ ...rule('muse'), machines: ['pc'] }), /Muse is mac-studio only/],
   ['PC-only Pi', () => ({ ...rule('pi-local', ['bulk-text']), machines: ['pc'] }), /unavailable on repo machines pc/],
   ['reasoning', () => rule('astra', ['docs'], { reasoning: 'ultra' }), /reasoning must be/],
-  ['Sonnet max', () => rule('sonnet', ['docs'], { reasoning: 'max' }), /exceeds cap high/],
-  ['Sonnet xhigh', () => rule('sonnet', ['docs'], { reasoning: 'xhigh' }), /exceeds cap high/],
+  ['Sonnet max', () => rule('sonnet', ['docs'], { reasoning: 'max' }), /exceeds cap xhigh/],
   ['missing source', () => rule('astra', ['docs'], { source: '' }), /source is required/],
   ['missing why', () => rule('astra', ['docs'], { why: '' }), /why is required/],
   ['Muse skill work', () => rule('muse', ['skill-workflow']), /excluded for skill-workflow/],
@@ -160,83 +158,87 @@ test('classifier receives exactly the fixed IDs and descriptions', () => {
 });
 
 test('tier 1: Muse first on Mac, Luna on PC', () => {
-  const mac = resolveCandidates(policy, 'quick-edit', { machine: 'mac-studio' });
+  const mac = resolveCandidates(policy, 'quick-edit', { machine: 'mac-studio' }).candidates;
   assert.deepEqual(ids(mac), ['muse', 'luna']);
   assert.deepEqual(mac[0], { route: 'muse', type: 'bb', provider: 'acp-muse', model: 'muse-spark-1.3',
-    reasoning: 'medium', machines: ['mac-studio'], pool: 'muse', vendor: 'meta', reason: 'policy kind quick-edit, tier 1' });
-  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { machine: 'pc' })), ['luna']);
+    reasoning: 'medium', machines: ['mac-studio'], pool: 'muse', vendor: 'meta', tier: 1, source: 'kind', fallback: false, escalated: false, reason: 'policy kind quick-edit, tier 1' });
+  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { machine: 'pc' }).candidates), ['luna']);
 });
 
 test('skill-workflow never yields Muse, including escalation', () => {
   for (const machine of ['mac-studio', 'pc']) for (const failures of [0, 1, 2, 4]) {
-    assert.ok(!ids(resolveCandidates(policy, 'skill-workflow', { machine, failures })).includes('muse'));
+    assert.ok(!ids(resolveCandidates(policy, 'skill-workflow', { machine, failures }).candidates).includes('muse'));
   }
 });
 
 test('two failures escalate quick-edit once to tier 2 at high', () => {
-  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { failures: 1 })), ['muse', 'luna']);
+  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { failures: 1 }).candidates), ['muse', 'luna']);
   for (const failures of [2, 4]) {
-    const result = resolveCandidates(policy, 'quick-edit', { failures });
+    const result = resolveCandidates(policy, 'quick-edit', { failures }).candidates;
     assert.deepEqual(ids(result), ['sonnet', 'astra']);
     assert.ok(result.every(c => c.reasoning === 'high' && c.reason.includes('tier 1 -> 2')));
   }
 });
 
 test('two failures escalate tier 2 to Opus xhigh; terminal tiers stay unchanged', () => {
-  const result = resolveCandidates(policy, 'routine-review', { failures: 2 });
+  const result = resolveCandidates(policy, 'routine-review', { failures: 2 }).candidates;
   assert.deepEqual(ids(result), ['opus']);
   assert.equal(result[0].reasoning, 'xhigh');
   for (const kind of ['ui-visual', 'bulk-text', 'image-generation']) {
-    assert.deepEqual(resolveCandidates(policy, kind, { failures: 2 }), resolveCandidates(policy, kind));
+    assert.deepEqual(resolveCandidates(policy, kind, { failures: 2 }).candidates, resolveCandidates(policy, kind).candidates);
   }
 });
 
 test('flora: Astra for 3D, Luna for review; overrides deduplicate and retain policy fallbacks', () => {
   const repo = 'srbryers/flora-studio';
-  assert.deepEqual(ids(resolveCandidates(policy, '3d-work', { repo })), ['astra', 'sonnet']);
-  assert.deepEqual(ids(resolveCandidates(policy, 'first-pass-review', { repo })), ['luna', 'muse']);
-  assert.equal(resolveCandidates(policy, 'routine-review', { repo })[0].route, 'luna');
-  assert.match(resolveCandidates(policy, '3d-work', { repo })[0].reason, /CLAUDE.md/);
+  assert.deepEqual(ids(resolveCandidates(policy, '3d-work', { repo }).candidates), ['astra', 'sonnet']);
+  assert.deepEqual(ids(resolveCandidates(policy, 'first-pass-review', { repo }).candidates), ['luna', 'muse']);
+  assert.equal(resolveCandidates(policy, 'routine-review', { repo }).candidates[0].route, 'luna');
+  assert.match(resolveCandidates(policy, '3d-work', { repo }).candidates[0].reason, /CLAUDE.md/);
 });
 
 test('fathoms: all kinds are PC-only and never use Muse or Pi', () => {
   const repo = 'srbryers/fathoms-game';
   for (const kind of Object.keys(policy.kinds)) {
-    const result = resolveCandidates(policy, kind, { repo });
+    const result = resolveCandidates(policy, kind, { repo }).candidates;
     assert.ok(result.length > 0);
     assert.ok(result.every(c => !['muse', 'pi-local'].includes(c.route)));
     assert.ok(result.every(c => JSON.stringify(c.machines) === '["pc"]'));
   }
-  assert.equal(resolveCandidates(policy, 'architecture', { repo })[0].route, 'astra');
-  assert.deepEqual(resolveCandidates(policy, 'quick-edit', { repo, machine: 'mac-studio' }), []);
+  assert.equal(resolveCandidates(policy, 'architecture', { repo }).candidates[0].route, 'astra');
+  assert.deepEqual(resolveCandidates(policy, 'quick-edit', { repo, machine: 'mac-studio' }).candidates, []);
 });
 
-test('wedding uses Astra for contracts and the broader high-risk review kind', () => {
+test('wedding routes contracts to Astra and only notes its contract-review rule', () => {
   const repo = 'srbryers/wedding';
-  for (const kind of ['data-contract', 'high-risk-review']) assert.equal(resolveCandidates(policy, kind, { repo })[0].route, 'astra');
+  assert.equal(resolveCandidates(policy, 'data-contract', { repo }).candidates[0].route, 'astra');
+  const review = resolveCandidates(policy, 'high-risk-review', { repo }).candidates[0];
+  assert.equal(review.route, 'opus');
+  assert.equal(review.note, 'data-contract reviews go to OpenAI (AGENTS.md)');
 });
 
 test('override beats escalation; explicit effort wins, inherited effort is capped', () => {
-  const result = resolveCandidates(policy, 'quick-edit', { failures: 2, override: rule('luna', ['quick-edit'], { reasoning: 'low' }) });
+  const result = resolveCandidates(policy, 'quick-edit', { failures: 2, override: rule('luna', ['quick-edit'], { reasoning: 'low' }) }).candidates;
   assert.deepEqual(ids(result), ['luna', 'sonnet', 'astra']);
   assert.equal(result[0].reasoning, 'low');
-  const capped = resolveCandidates(policy, 'architecture', { override: rule('sonnet', ['architecture']) });
-  assert.equal(capped[0].reasoning, 'high');
-  assert.match(capped[0].reason, /capped at high/);
+  const p = copy(); p.kinds.architecture.reasoning = 'max';
+  const capped = resolveCandidates(p, 'architecture', { override: rule('sonnet', ['architecture']) }).candidates;
+  assert.equal(capped[0].reasoning, 'xhigh');
+  assert.match(capped[0].reason, /capped at xhigh/);
 });
 
-test('Sonnet never exceeds high across all kinds, failures and inherited overrides', () => {
+test('Sonnet never exceeds xhigh across all kinds, failures and inherited overrides', () => {
   for (const kind of Object.keys(policy.kinds)) for (const failures of [0, 1, 2, 4]) {
-    const result = resolveCandidates(policy, kind, { failures, override: rule('sonnet', [kind]) });
-    assert.ok(result.filter(c => c.route === 'sonnet').every(c => c.reasoning === null || ['low', 'medium', 'high'].includes(c.reasoning)));
+    const result = resolveCandidates(policy, kind, { failures, override: rule('sonnet', [kind]) }).candidates;
+    assert.ok(result.filter(c => c.route === 'sonnet').every(c => c.reasoning === null || ['low', 'medium', 'high', 'xhigh'].includes(c.reasoning)));
   }
 });
 
 test('local and image candidates carry no effort; local paid fallback uses medium', () => {
-  const local = resolveCandidates(policy, 'bulk-text');
+  const local = resolveCandidates(policy, 'bulk-text').candidates;
   assert.deepEqual(ids(local), ['pi-local', 'muse', 'luna']);
   assert.deepEqual(local.map(c => c.reasoning), [null, 'medium', 'medium']);
-  const image = resolveCandidates(policy, 'image-generation');
+  const image = resolveCandidates(policy, 'image-generation').candidates;
   assert.deepEqual(ids(image), ['astra']);
   assert.equal(image[0].reasoning, null);
 });
@@ -244,16 +246,16 @@ test('local and image candidates carry no effort; local paid fallback uses mediu
 test('resolver is deterministic, rejects invalid input and never mutates inputs', () => {
   const override = example();
   const before = structuredClone(override);
-  const result = resolveCandidates(policy, '3d-work', { override });
-  assert.deepEqual(result, resolveCandidates(policy, '3d-work', { override }));
+  const result = resolveCandidates(policy, '3d-work', { override }).candidates;
+  assert.deepEqual(result, resolveCandidates(policy, '3d-work', { override }).candidates);
   result[0].machines.push('fake');
   assert.deepEqual(override, before);
   assert.ok(!policy.routes.astra.machines.includes('fake'));
-  assert.throws(() => resolveCandidates(policy, 'unknown'), /Unknown kind/);
-  assert.throws(() => resolveCandidates(policy, 'constructor'), /Unknown kind/);
-  assert.throws(() => resolveCandidates(policy, 'docs', { machine: 'unknown' }), /Unknown machine/);
-  for (const failures of [-1, 1.5, NaN, '2']) assert.throws(() => resolveCandidates(policy, 'docs', { failures }), /nonnegative integer/);
-  assert.throws(() => resolveCandidates(policy, 'docs', { override: rule('sonnet', ['docs'], { reasoning: 'max' }) }), /Invalid override/);
+  assert.throws(() => resolveCandidates(policy, 'unknown').candidates, /Unknown kind/);
+  assert.throws(() => resolveCandidates(policy, 'constructor').candidates, /Unknown kind/);
+  assert.throws(() => resolveCandidates(policy, 'docs', { machine: 'unknown' }).candidates, /Unknown machine/);
+  for (const failures of [-1, 1.5, NaN, '2']) assert.throws(() => resolveCandidates(policy, 'docs', { failures }).candidates, /nonnegative integer/);
+  assert.throws(() => resolveCandidates(policy, 'docs', { override: rule('sonnet', ['docs'], { reasoning: 'max' }) }).candidates, /Invalid override/);
 });
 
 test('generic override example validates', () => {
@@ -263,21 +265,21 @@ test('generic override example validates', () => {
 test('file rules beat central rules; unmatched kinds and omitted machines inherit repo settings', () => {
   const repo = 'srbryers/fathoms-game';
   const override = rule('sonnet', ['architecture'], { reasoning: 'high' });
-  const result = resolveCandidates(policy, 'architecture', { repo, override });
+  const result = resolveCandidates(policy, 'architecture', { repo, override }).candidates;
   assert.deepEqual(ids(result), ['sonnet', 'astra', 'opus']);
   assert.match(result[0].reason, /repo override/);
   assert.match(result[1].reason, /policy repo srbryers\/fathoms-game/);
   assert.ok(result.every(c => JSON.stringify(c.machines) === '["pc"]'));
-  assert.equal(resolveCandidates(policy, 'hard-bug-fix', { repo, override })[0].route, 'astra');
-  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override })), ['luna']);
-  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override: { ...override, machines: ['mac-studio'] } })), ['muse', 'luna']);
-  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override: rule('muse') })), ['luna']);
+  assert.equal(resolveCandidates(policy, 'hard-bug-fix', { repo, override }).candidates[0].route, 'astra');
+  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override }).candidates), ['luna']);
+  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override: { ...override, machines: ['mac-studio'] } }).candidates), ['muse', 'luna']);
+  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override: rule('muse') }).candidates), ['luna']);
 });
 
 test('unknown repo uses shared policy and an empty file does not erase central rules', () => {
-  assert.deepEqual(resolveCandidates(policy, 'architecture', { repo: 'someone/unknown' }), resolveCandidates(policy, 'architecture'));
-  assert.equal(resolveCandidates(policy, 'architecture', { repo: 'srbryers/fathoms-game', override: { policyVersion: 1, rules: [] } })[0].route, 'astra');
-  assert.throws(() => resolveCandidates(policy, 'docs', { repo: 42 }), /repo must be/);
+  assert.deepEqual(resolveCandidates(policy, 'architecture', { repo: 'someone/unknown' }).candidates, resolveCandidates(policy, 'architecture').candidates);
+  assert.equal(resolveCandidates(policy, 'architecture', { repo: 'srbryers/fathoms-game', override: { policyVersion: 1, rules: [] } }).candidates[0].route, 'astra');
+  assert.throws(() => resolveCandidates(policy, 'docs', { repo: 42 }).candidates, /repo must be/);
 });
 
 test('pure remote parser normalizes supported GitHub URL forms', () => {
@@ -316,14 +318,15 @@ test('repoKey injects a local Git call with separate arguments and handles a mis
 test('external Prelude routes preserve instructions and approval flags without spawn fields', () => {
   const repo = 'srbryers/prelude-social-skills-coach';
   for (const [kind, id] of [['user-facing-copy', 'gemini-copy'], ['visual-implementation', 'gemini-visual'], ['image-generation', 'openai-image']]) {
-    const [candidate] = resolveCandidates(policy, kind, { repo, machine: 'pc' });
+    const [candidate] = resolveCandidates(policy, kind, { repo, machine: 'pc' }).candidates;
     assert.equal(candidate.route, id);
     assert.equal(candidate.type, 'external');
     assert.equal(candidate.requiresSpendApproval, true);
     assert.equal(candidate.instruction, policy.routes[id].instruction);
     assert.equal(candidate.vendor, policy.routes[id].vendor);
     assert.equal(candidate.pool, 'metered');
-    for (const key of ['provider', 'model', 'machines', 'reasoning']) assert.ok(!Object.hasOwn(candidate, key), key);
+    for (const key of ['provider', 'model', 'reasoning']) assert.equal(candidate[key], null, key);
+    assert.deepEqual(candidate.machines, []);
     assert.match(candidate.note, /An author never approves its own change/);
   }
 });
@@ -342,7 +345,7 @@ test('external routes reject spawn fields, missing instructions and invalid appr
 test('BB route type defaults to bb and unknown types are rejected', () => {
   const p = copy(); delete p.routes.muse.type;
   assert.equal(validatePolicy(p).ok, true);
-  assert.equal(resolveCandidates(p, 'quick-edit')[0].type, 'bb');
+  assert.equal(resolveCandidates(p, 'quick-edit').candidates[0].type, 'bb');
   p.routes.muse.type = 'unknown';
   invalid(validatePolicy(p), /type must be bb or external/);
 });
@@ -353,7 +356,7 @@ test('Prelude applies model and reasoning rules, including the independent-revie
     ['bounded-build', 'gpt-5.5', 'medium'], ['multi-step-coding', 'gpt-5.5', 'medium'],
     ['docs', 'luna', 'low'], ['high-risk-review', 'astra', 'high'], ['routine-review', 'astra', 'high'],
     ['architecture', 'astra', 'xhigh'], ['ui-visual', 'astra', 'xhigh']]) {
-    const candidate = resolveCandidates(policy, kind, { repo })[0];
+    const candidate = resolveCandidates(policy, kind, { repo }).candidates[0];
     assert.equal(candidate.route, route, kind);
     assert.equal(candidate.reasoning, reasoning, kind);
     assert.match(candidate.note, /Independent review.*Gate 5/);
@@ -363,12 +366,12 @@ test('Prelude applies model and reasoning rules, including the independent-revie
 test('UI Kit wildcard excludes Muse for every kind, even after escalation or a file preference', () => {
   const repo = 'srbryers/ui-kit';
   for (const kind of Object.keys(policy.kinds)) for (const failures of [0, 2]) {
-    const candidates = resolveCandidates(policy, kind, { repo, failures });
+    const candidates = resolveCandidates(policy, kind, { repo, failures }).candidates;
     assert.ok(candidates.length > 0, kind);
     assert.ok(candidates.every(c => c.route !== 'muse'), kind);
     assert.ok(candidates.every(c => c.note.includes('kit-curator gate')), kind);
   }
-  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override: rule('muse') })), ['luna']);
+  assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override: rule('muse') }).candidates), ['luna']);
 });
 
 test('file wildcard rules support routes, exclusions and notes; specific routes take priority', () => {
@@ -377,8 +380,8 @@ test('file wildcard rules support routes, exclusions and notes; specific routes 
     { kinds: ['docs'], route: 'luna', note: 'Docs note.', source: 'AGENTS.md', why: 'Docs preference.' },
   ] };
   assert.equal(validateOverride(override, policy).ok, true);
-  assert.equal(resolveCandidates(policy, 'quick-edit', { override })[0].route, 'astra');
-  const docs = resolveCandidates(policy, 'docs', { override });
+  assert.equal(resolveCandidates(policy, 'quick-edit', { override }).candidates[0].route, 'astra');
+  const docs = resolveCandidates(policy, 'docs', { override }).candidates;
   assert.equal(docs[0].route, 'luna');
   assert.ok(docs.every(c => c.route !== 'muse'));
   assert.equal(docs[0].note, 'Shared note. Docs note.');
@@ -390,4 +393,161 @@ test('rule validation rejects unknown exclusions, mixed wildcards and empty acti
   invalid(validateOverride(rule('astra', ['docs'], { note: '' }), policy), /note must be a nonempty string/);
   const override = rule('astra'); delete override.rules[0].route;
   invalid(validateOverride(override, policy), /supply route, excludeRoutes or note/);
+});
+
+test('repo arguments normalize case and .git suffix; malformed keys throw', () => {
+  const expected = resolveCandidates(policy, 'quick-edit', { repo: 'srbryers/ui-kit' });
+  for (const repo of ['SrBryers/UI-Kit', 'SRBRYERS/UI-KIT.GIT']) {
+    assert.deepEqual(resolveCandidates(policy, 'quick-edit', { repo }), expected);
+  }
+  assert.deepEqual(ids(expected.candidates), ['luna']);
+  for (const repo of ['', [], 'owner', 'a/b/c', 'https://github.com/o/n', 'o/..', 'o/n?x']) {
+    assert.throws(() => resolveCandidates(policy, 'docs', { repo }), /valid owner\/name/);
+  }
+});
+
+test('rule route and excluded route identifiers must be strings', () => {
+  for (const route of [['astra'], { toString: () => 'astra' }, 1, null]) {
+    invalid(validateOverride(rule(route), policy), /route must be a string/);
+  }
+  invalid(validateOverride(rule('astra', ['docs'], { excludeRoutes: [['muse']] }), policy), /entries must be strings/);
+  const p = copy(); p.repos['srbryers/wedding'].rules[0].route = ['astra'];
+  invalid(validatePolicy(p), /route must be a string/);
+});
+
+test('repoKey decodes injected Buffer output', () => {
+  assert.equal(repoKey('/unused', { execFile: () => Buffer.from('git@github.com:SrBryers/UI-Kit.git\n') }), 'srbryers/ui-kit');
+  assert.equal(parseRepoUrl('git@github.com-work:srbryers/ui-kit.git'), null);
+});
+
+test('repo escalation retains marked preference before next-tier candidates', () => {
+  const result = resolveCandidates(policy, 'docs', { repo: 'srbryers/prelude-social-skills-coach', failures: 2 });
+  assert.deepEqual(ids(result.candidates), ['luna', 'sonnet', 'astra']);
+  assert.deepEqual(result.candidates.map(c => [c.source, c.tier, c.fallback, c.escalated]),
+    [['repo', 2, false, true], ['tier', 2, true, true], ['tier', 2, true, true]]);
+  assert.equal(result.candidates[0].reasoning, 'low');
+  const override = { policyVersion: 1, rules: [{ kinds: ['docs'], excludeRoutes: ['sonnet'], source: 'AGENTS.md', why: 'Use another vendor.' }] };
+  const filtered = resolveCandidates(policy, 'docs', { repo: 'srbryers/prelude-social-skills-coach', override, failures: 2 });
+  assert.deepEqual(ids(filtered.candidates), ['luna', 'astra']);
+  assert.ok(filtered.blocked.some(b => b.route === 'sonnet' && /excluded/.test(b.why)));
+});
+
+test('candidate shape includes provenance and distinguishes declared fallbacks', () => {
+  const result = resolveCandidates(policy, 'quick-edit');
+  assert.deepEqual(Object.keys(result).sort(), ['blocked', 'candidates']);
+  const keys = ['route', 'type', 'provider', 'model', 'reasoning', 'machines', 'pool', 'vendor', 'tier', 'source', 'fallback', 'escalated', 'reason'];
+  assert.deepEqual(Object.keys(result.candidates[0]).sort(), keys.sort());
+  assert.equal(result.candidates[0].fallback, false);
+  assert.equal(result.candidates[1].fallback, true);
+  const external = resolveCandidates(policy, 'user-facing-copy', { repo: 'srbryers/prelude-social-skills-coach' }).candidates[0];
+  for (const key of keys) assert.ok(Object.hasOwn(external, key), key);
+  assert.equal(external.tier, 1);
+  assert.equal(external.source, 'repo');
+});
+
+test('blocked explains exclusions, machine limits and source conflicts', () => {
+  const pc = resolveCandidates(policy, 'quick-edit', { machine: 'pc' });
+  assert.ok(pc.blocked.some(b => b.route === 'muse' && /machine limit/.test(b.why)));
+  const empty = resolveCandidates(policy, 'docs', { repo: 'srbryers/fathoms-game', machine: 'mac-studio' });
+  assert.deepEqual(empty.candidates, []);
+  assert.deepEqual(empty.blocked.map(b => b.route), ['muse', 'luna']);
+  const override = rule('astra', ['3d-work'], { reasoning: 'medium' });
+  const conflict = resolveCandidates(policy, '3d-work', { repo: 'srbryers/flora-studio', override });
+  assert.equal(conflict.candidates[0].source, 'file');
+  assert.equal(conflict.candidates[0].reasoning, 'medium');
+  assert.ok(conflict.blocked.some(b => b.route === 'astra' && /repo candidate superseded by file/.test(b.why)));
+  for (const b of [...pc.blocked, ...empty.blocked, ...conflict.blocked]) assert.deepEqual(Object.keys(b).sort(), ['route', 'why']);
+});
+
+test('Claude identity must agree in every direction, including on external routes', () => {
+  for (const [field, value] of [['provider', 'pi'], ['pool', 'local'], ['vendor', 'openai'], ['model', 'other']]) {
+    const p = copy(); p.routes.opus[field] = value;
+    invalid(validatePolicy(p), /Claude requires/);
+  }
+  for (const [field, value] of [['provider', 'claude-code'], ['pool', 'claude'], ['vendor', 'anthropic'], ['model', 'claude-renamed']]) {
+    const p = copy(); p.routes['pi-local'][field] = value;
+    invalid(validatePolicy(p), /Claude requires/);
+  }
+  const p = copy(); p.routes['gemini-copy'].vendor = 'anthropic';
+  invalid(validatePolicy(p), /Claude requires/);
+});
+
+test('Codex and Muse pool/provider identity is bidirectional', () => {
+  for (const [id, field, value, pattern] of [
+    ['astra', 'pool', 'local', /codex provider and pool/], ['astra', 'provider', 'pi', /codex provider and pool/],
+    ['astra', 'vendor', 'local', /codex provider and pool/], ['pi-local', 'pool', 'codex', /codex provider and pool/],
+    ['muse', 'pool', 'local', /acp-muse provider and muse pool/], ['muse', 'provider', 'pi', /acp-muse provider and muse pool/],
+    ['pi-local', 'pool', 'muse', /acp-muse provider and muse pool/],
+  ]) { const p = copy(); p.routes[id][field] = value; invalid(validatePolicy(p), pattern); }
+});
+
+test('contributor is rejected regardless of case, field or hyphen', () => {
+  for (const field of ['model', 'provider']) {
+    const p = copy(); p.routes.muse[field] = 'MuseContributor';
+    invalid(validatePolicy(p), /contributor routes are forbidden/);
+  }
+  const p = copy(); p.routes.ConTributor = structuredClone(p.routes['gemini-copy']);
+  invalid(validatePolicy(p), /contributor routes are forbidden/);
+});
+
+test('loaders reject nested and escaped duplicate JSON keys without confusing strings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'routing-duplicates-'));
+  const path = join(dir, '.model-routing.json');
+  try {
+    for (const contents of [
+      '{"policyVersion":1,"policyVersion":1}',
+      '{"rules":[{"route":"astra","route":"luna"}]}',
+      '{"rules":[{"route":"astra","rout\\u0065":"luna"}]}',
+      '{"a":{"x":1,"x":2}}',
+    ]) {
+      writeFileSync(path, contents);
+      assert.throws(() => loadPolicy(path), /Duplicate JSON key/);
+      assert.throws(() => loadOverride(dir), /Duplicate JSON key/);
+    }
+    const valid = { policyVersion: 1, rules: [
+      { kinds: ['docs'], route: 'luna', source: 'AGENTS.md', why: 'Text with "route": and {,} and \\ escapes.' },
+      { kinds: ['quick-edit'], route: 'luna', source: 'AGENTS.md', why: 'Same keys in different objects are valid.' },
+    ] };
+    writeFileSync(path, JSON.stringify(valid));
+    assert.deepEqual(loadOverride(dir), valid);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('kind routes must match tier membership or explicitly justify cross-tier choices', () => {
+  const p = copy(); p.kinds.docs.candidates = ['astra'];
+  invalid(validatePolicy(p), /routes must belong to tier 1/);
+  p.kinds.docs.crossTier = true;
+  invalid(validatePolicy(p), /crossTierReason is required/);
+  p.kinds.docs.crossTierReason = 'A deliberate exception.';
+  assert.equal(validatePolicy(p).ok, true);
+  const fallback = copy(); fallback.kinds.docs.fallbacks = ['opus'];
+  invalid(validatePolicy(fallback), /routes must belong to tier 1/);
+  const external = copy(); external.tiers['1'].candidates = ['gemini-copy'];
+  invalid(validatePolicy(external), /external route gemini-copy is not allowed in a tier/);
+});
+
+test('rules cannot exclude every applicable route, including combined wildcard exclusions', () => {
+  const override = { policyVersion: 1, rules: [{ kinds: ['docs'], excludeRoutes: ['muse', 'luna'], source: 'AGENTS.md', why: 'Invalid: no route remains.' }] };
+  invalid(validateOverride(override, policy), /exclusions remove every route for docs/);
+  override.rules[0].excludeRoutes = Object.keys(policy.routes);
+  invalid(validateOverride(override, policy), /exclusions remove every route/);
+  override.rules[0].excludeRoutes = ['luna'];
+  override.rules.push({ kinds: ['*'], excludeRoutes: ['muse'], source: 'AGENTS.md', why: 'Combine exclusions.' });
+  invalid(validateOverride(override, policy), /exclusions remove every route for docs/);
+});
+
+test('Sonnet accepts xhigh but rejects max', () => {
+  const override = rule('sonnet', ['docs'], { reasoning: 'xhigh' });
+  assert.equal(validateOverride(override, policy).ok, true);
+  assert.equal(resolveCandidates(policy, 'docs', { override }).candidates[0].reasoning, 'xhigh');
+  override.rules[0].reasoning = 'max';
+  invalid(validateOverride(override, policy), /exceeds cap xhigh/);
+});
+
+test('a superseded wildcard route cannot rescue an override that excludes every candidate', () => {
+  const override = { policyVersion: 1, rules: [
+    { kinds: ['*'], route: 'astra', source: 'AGENTS.md', why: 'Default.' },
+    { kinds: ['docs'], route: 'luna', excludeRoutes: ['muse', 'luna'], source: 'AGENTS.md', why: 'Invalid specific rule.' },
+  ] };
+  invalid(validateOverride(override, policy), /exclusions remove every route for docs/);
 });

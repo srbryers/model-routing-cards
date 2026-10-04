@@ -21,7 +21,7 @@
       ],
       "pool": "claude",
       "vendor": "anthropic",
-      "maxReasoning": "high",
+      "maxReasoning": "xhigh",
       "type": "bb"
     },
     "opus": {
@@ -379,7 +379,9 @@
         "muse",
         "luna"
       ],
-      "fallbackReasoning": "medium"
+      "fallbackReasoning": "medium",
+      "crossTier": true,
+      "crossTierReason": "Local work falls back to tier 1 when Pi is unavailable."
     },
     "image-generation": {
       "tier": "image",
@@ -390,7 +392,9 @@
       ],
       "fallbacks": [],
       "tool": "codex-image",
-      "alternativeTool": "pi-imagen"
+      "alternativeTool": "pi-imagen",
+      "crossTier": true,
+      "crossTierReason": "Image tooling uses Astra outside the paid tier choices."
     },
     "user-facing-copy": {
       "tier": 1,
@@ -522,12 +526,19 @@
       "rules": [
         {
           "kinds": [
-            "data-contract",
-            "high-risk-review"
+            "data-contract"
           ],
           "route": "astra",
           "source": "AGENTS.md",
-          "why": "Data contracts and their review go to OpenAI; high-risk-review includes data-contract review."
+          "why": "Data contracts go to OpenAI under AGENTS.md."
+        },
+        {
+          "kinds": [
+            "high-risk-review"
+          ],
+          "note": "data-contract reviews go to OpenAI (AGENTS.md)",
+          "source": "AGENTS.md",
+          "why": "Only data-contract reviews have an OpenAI requirement; other high-risk reviews keep shared routing."
         }
       ]
     },
@@ -595,7 +606,7 @@
           ],
           "route": "astra",
           "source": ".codex/agents/",
-          "why": "Critical review.",
+          "why": "Critical review. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules.",
           "reasoning": "high"
         },
         {
@@ -605,7 +616,7 @@
           ],
           "route": "gpt-5.5",
           "source": ".codex/agents/",
-          "why": "Bounded implementation.",
+          "why": "Bounded implementation. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules.",
           "reasoning": "medium"
         },
         {
@@ -642,7 +653,7 @@
           ],
           "route": "astra",
           "source": "~/.claude/skills/gemini-ui-design/SKILL.md",
-          "why": "Astra reasons and directs."
+          "why": "Astra reasons and directs. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules."
         },
         {
           "kinds": [
