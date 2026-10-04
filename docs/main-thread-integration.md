@@ -37,7 +37,7 @@ When you pass `--kind` yourself, test work follows what the task changes:
 | Task | Kind |
 |---|---|
 | Adds or changes tests only, no product code | `write-tests` |
-| Adds tests and fixes a bug whose failure is known | `simple-bug-fix` |
+| Adds tests and fixes a bug with a known or obvious cause, with a bounded fix | `simple-bug-fix` |
 | Adds tests to find unknown bugs, then fixes them | `hard-bug-fix` |
 | Adds tests and fixes code across several modules | `multi-step-coding` |
 
@@ -143,11 +143,11 @@ A `null` price means unknown, not free.
 Fireworks models via Pi are offered only when every subscription candidate is
 removed by the 95% quota ceiling (any readable window at or above it) or by a
 cooldown, or when a repo rule names one. The 70% and 85% thresholds only steer
-work between subscriptions and never lead to metered. The Claude 80% reserve
+work between subscriptions and never lead to the automatic metered fallback. The Claude 80% reserve
 never does either: if Claude is held back only by that reserve and the other
 subscriptions are exhausted, `pick` returns `blocked` and you decide.
-Exclusions, machine limits and repo rules never lead to metered. Tier 3 has no
-metered fallback.
+Exclusions, machine limits and repo rules never lead to the automatic metered
+fallback. Tier 3 has no metered fallback.
 
 A repo or file rule that names a metered route (for example Prelude's
 `gemini-flash`) is different: it is a deliberate choice of a model no

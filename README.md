@@ -156,7 +156,7 @@ Vertex prices are unverified. These routes are **not general coding fallbacks**
 and do not appear in `quota.meteredFallback`. OpenRouter Gemini routes stay
 disabled fallbacks, behind the acp-gemini options. No Gemini subscription route
 is configured.
-A metered route is offered only when every subscription route for the task is
+An automatic metered fallback is offered only when every subscription route for the task is
 out because of the 95% ceiling or a cooldown. If Claude is held back only by the
 80% reserve, `pick` returns `blocked` instead, so you decide on spending.
 See [metered routing](policy/README.md#metered-routes).
