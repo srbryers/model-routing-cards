@@ -91,17 +91,27 @@ export function pick(input, deps) {
     candidates = expanded.candidates;
   }
   const subscriptionCandidates = candidates.slice();
-  const limited = new Set();
-  const limitReject = (candidate, reason) => {
-    limited.add(candidate.route);
+  // ⚠ Why a subscription route was removed decides whether metered may be offered:
+  // 'cooldown' and 'ceiling' allow it; 'reserve' (the Claude 80% rule) never does.
+  const limited = new Map();
+  const limitReject = (candidate, reason, cause) => {
+    limited.set(candidate.route, cause);
     return reject(candidate, reason);
   };
+  const windowLabel = window => (window === 'five-hour' ? '5h' : window);
   candidates = candidates.filter(c => vendorAllowed(c) || reject(c, `review must use a different vendor than ${authorVendor}`));
   candidates = candidates.filter(c => !((c.source === 'repo' || c.source === 'file') && c.escalated
     && options.failures >= policy.escalation.escalateAfterFailures)
     || reject(c, 'escalated repo route skipped after repeated failures'));
   candidates = candidates.filter(c => !(Date.parse(limits[c.route]) > now)
-    || limitReject(c, `limit cooldown until ${limits[c.route]}`));
+    || limitReject(c, `limit cooldown until ${limits[c.route]}`, 'cooldown'));
+  // ⚠ A pool with any readable window at the ceiling is exhausted: all its routes go,
+  // repo rules and main threads included.
+  const ceiling = policy.quota.ceilingPercent;
+  candidates = candidates.filter(c => {
+    const full = Object.entries(quota[c.pool] ?? {}).find(([, value]) => value.used >= ceiling);
+    return !full || limitReject(c, `${c.pool} ${windowLabel(full[0])} ${full[1].used}% ≥ ${ceiling}% ceiling: pool exhausted`, 'ceiling');
+  });
   const quotaCandidates = candidates[0]?.type === 'external' ? [] : candidates;
   for (const pool of new Set(quotaCandidates.filter(c => c.type !== 'external').map(c => c.pool))) {
     if (!policy.pools[pool].readable) why.push(`${pool} quota unreadable by design; relying on cooldowns`);
@@ -111,7 +121,7 @@ export function pick(input, deps) {
       const used = quota[rule.pool]?.[rule.window]?.used;
       if (rule.action !== 'reserve-pool' || !(used > rule.usedPercentAbove) || c.pool !== rule.pool) continue;
       if (!rule.allowedTiers.includes(c.tier) && !(rule.allowMainThreads && input.mainThread)) {
-        return limitReject(c, `${c.source === 'repo' || c.source === 'file' ? 'repo override blocked: ' : ''}${rule.pool} ${rule.window} ${used}% > ${rule.usedPercentAbove}%; reserved pool`);
+        return limitReject(c, `${c.source === 'repo' || c.source === 'file' ? 'repo override blocked: ' : ''}${rule.pool} ${rule.window} ${used}% > ${rule.usedPercentAbove}%; reserved pool`, 'reserve');
       }
     }
     return true;
@@ -119,9 +129,15 @@ export function pick(input, deps) {
   let meteredFallback = false;
   // ⚠ Spending is only a response to exhausted subscriptions, never a way around
   // exclusions, machine restrictions, missing configuration or review independence.
-  const exhausted = subscriptionCandidates.length > 0
+  // A route held back only by the Claude reserve is not exhausted: Sebastian decides.
+  const allLimited = subscriptionCandidates.length > 0
     && subscriptionCandidates.every(c => c.type !== 'external' && !['local', 'metered'].includes(c.pool) && limited.has(c.route))
     && resolved.blocked.every(b => /candidate superseded by/.test(b.why));
+  const reserved = subscriptionCandidates.filter(c => limited.get(c.route) === 'reserve');
+  const exhausted = allLimited && !reserved.length;
+  if (!candidates.length && allLimited && reserved.length) {
+    why.push(`${reserved.map(c => c.route).join(', ')} held back only by the Claude reserve while other subscriptions are exhausted; metered not offered, owner decides`);
+  }
   if (!candidates.length && exhausted) {
     const expanded = resolveCandidates(policy, kind, { ...options, meteredFallbacks: true });
     const fallbackIds = policy.quota.meteredFallback[subscriptionCandidates[0].tier] ?? [];
@@ -130,7 +146,7 @@ export function pick(input, deps) {
       .filter(c => vendorAllowed(c) || reject(c, `review must use a different vendor than ${authorVendor}`))
       .filter(c => !(Date.parse(limits[c.route]) > now) || reject(c, `limit cooldown until ${limits[c.route]}`));
     meteredFallback = candidates.length > 0;
-    why.push(meteredFallback ? 'all subscription candidates removed by quota stops or cooldowns; metered fallback order is unmeasured; no card backs it'
+    why.push(meteredFallback ? 'all subscription candidates removed by the quota ceiling or cooldowns; metered fallback order is unmeasured; no card backs it'
       : `no allowed metered fallback for tier ${subscriptionCandidates[0].tier}`);
   }
   if (!candidates.length) {

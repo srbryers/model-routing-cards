@@ -251,7 +251,9 @@ export function validatePolicy(policy) {
     }
   }
   const quota = policy.quota;
-  if (fields(quota, 'quota', ['overridesBeatHardStops', 'thresholds', 'limitErrors', 'meteredFallback'])) {
+  if (fields(quota, 'quota', ['overridesBeatHardStops', 'ceilingPercent', 'thresholds', 'limitErrors', 'meteredFallback'])) {
+    check(Number.isFinite(quota.ceilingPercent) && quota.ceilingPercent >= 50 && quota.ceilingPercent <= 100,
+      'quota.ceilingPercent must be between 50 and 100');
     if (fields(quota.meteredFallback, 'quota.meteredFallback', ['1', '2', '3'])) {
       for (const [tier, ids] of Object.entries(quota.meteredFallback)) {
         for (const id of routeList(ids, `quota.meteredFallback.${tier}`)) {

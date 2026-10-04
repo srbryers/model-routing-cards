@@ -87,7 +87,11 @@ not applied”** to the notes; `--require-quota` blocks the affected decision.
 Tier 2 is Sonnet, Astra or Sol. Weekly pace picks a pool (Claude or Codex).
 If Claude wins, the route is Sonnet. If Codex wins, `pick` alternates between
 Astra and Sol. If the pools are within 5 points, it rotates Sonnet, Astra, Sol.
-Alternating choices are labelled `trial`, never a measured winner. Sol runs on
+Alternating choices are labelled `trial`, never a measured winner.
+The 70% and 85% quota thresholds only steer work between Claude and Codex.
+Above 80% Claude 5-hour use, Claude takes only main threads (`--main-thread`) and
+tier-3 work. At **95%** or more on any readable window, a pool is exhausted and
+its routes are removed. Sol runs on
 the Mac Studio and the PC; it needs Codex CLI 0.160 or later. Pi and Fireworks
 routes are mac-studio only, because BB's Pi extension does not start on Windows.
 Pass `--author ROUTE_OR_VENDOR` for an independent review. Use
@@ -152,6 +156,9 @@ Vertex prices are unverified. These routes are **not general coding fallbacks**
 and do not appear in `quota.meteredFallback`. OpenRouter Gemini routes stay
 disabled fallbacks, behind the acp-gemini options. No Gemini subscription route
 is configured.
+An automatic metered fallback is offered only when every subscription route for the task is
+out because of the 95% ceiling or a cooldown. If Claude is held back only by the
+80% reserve, `pick` returns `blocked` instead, so you decide on spending.
 See [metered routing](policy/README.md#metered-routes).
 
 ## Your own repo rules

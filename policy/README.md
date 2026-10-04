@@ -22,7 +22,8 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `tiers` | Ordered routes, fallbacks and default reasoning for each paid tier. |
 | `kinds` | Fixed classifier labels, descriptions, tier, reasoning and explicit route order. `local` and `image` are outside paid tiers. `null` reasoning means no effort setting. |
 | `escalation` | `failuresScope: "task"` counts total failures across tiers. Every two failures advance one step: 1 → 2 at high, then 2 → 3 at xhigh. Stop at tier 3; local and image have no escalation step. |
-| `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, tier preferences and pool reservations. A lone preference binds when its target pool is available; reservations always bind. |
+| `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, tier preferences, pool reservations and `ceilingPercent`. The 70% and 85% thresholds are soft: they steer work between subscriptions and never stop it. The Claude 80% reservation and the ceiling are hard. A lone preference binds when its target pool is available; reservations always bind. |
+| `quota.ceilingPercent` | A number from 50 to 100 (now **95**). A pool with any readable window **at or above** the ceiling is exhausted: every route in it is removed, as a cooldown would remove it. `why` says so, for example `codex weekly 96% ≥ 95% ceiling: pool exhausted`. |
 | `tieBreak` | Tier 2 is Sonnet, Astra or Sol: repo rule, machine eligibility, weekly pace picks the pool, then the pool picks the route (Sonnet; or Astra and Sol alternating; or all three when the pools tie). Alternating choices are labelled `trial`. `routes` lists the rotation order and must all be tier-2 candidates. Sol runs on both machines. |
 | `review` | Review kinds require a different vendor from the author. |
 | `cards` | `byKind` maps kinds to card files. Fresh `CALIBRATED` winners may select an allowed candidate; measured cheaper results can break a pace tie. The 30-day limit matches `TRUST.STALE_DAYS`. |
@@ -34,7 +35,15 @@ its open questions. Benchmark evidence does not change policy by itself.
 ## Change the policy
 
 1. Edit the JSON and update `updated`. Keep kind IDs stable; each description is
-   read by the classifier. Kind candidates and fallbacks must belong to their paid tier. An exception
+   read by the classifier. Keep descriptions short and plain, and make sure no two
+   kinds claim the same work. Jev reads only the descriptions, so write the
+   precedence into them: domain kinds (`ios`, `ui-visual`, `3d-work`, `data-contract`,
+   `user-facing-copy`) win over `quick-edit`, `bounded-build` and `multi-step-coding`,
+   but tests-only work is `write-tests` in any codebase, including iOS; `migration` wins over `multi-step-coding`;
+   the higher-risk review kind wins; a bug whose cause must be found is
+   `hard-bug-fix`, even if it reproduces. After changing one, run
+   `node scripts/classify.check.mjs --execute` (17 live Jev calls, capped at $0.05).
+   Without `--execute` it only lists the briefs. Kind candidates and fallbacks must belong to their paid tier. An exception
    requires `crossTier: true` and a nonempty `crossTierReason`; local/image kinds
    declare these explicitly. External routes cannot appear in paid tiers.
 2. Keep route references valid. Muse is Mac-only, contributor models are forbidden,
@@ -205,7 +214,7 @@ classification; dispatch stays with the caller.
 | Budget | Call `assertJevBudget` before credentials and request. Default cap is $0.01. The serialized UTF-8 request byte count bounds input tokens for the reserve. Keep the 80,000-byte rejection. Key/configuration errors exit 2 before the network request. Log measured input cost; use null when response usage is unavailable. Oversized requests are rejected, never truncated. |
 | Machine | Explicit flag, then a sole allowed repo machine, then `machines.default` if allowed, otherwise the first allowed machine. Conflicts block. `default` is validated and never treated as a machine ID. |
 | Cooldown | Skip limited routes, then use the surviving policy candidates. `limit` defaults to the route's policy duration, otherwise five hours. |
-| Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. Stops act on pools, so Sol follows Astra: Claude session >70% leaves Astra and Sol to alternate; Codex weekly >85% removes both and leaves Sonnet. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. |
+| Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. Stops act on pools, so Sol follows Astra: Claude session >70% leaves Astra and Sol to alternate; Codex weekly >85% removes both and leaves Sonnet. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. At or above `quota.ceilingPercent` (95), a pool is exhausted whatever the other rules say, even for main threads and repo rules. |
 | Pace | `elapsedPct = 100 * (now - (resetsAt - length)) / length`; headroom is elapsed minus used. Weekly length is seven days; session length is five hours. Require a `Z` or explicit UTC offset, clamp elapsed to 0–100, compare full precision and show both headrooms. Ignore windows with a `model` field; duplicate kinds use the highest used percentage. |
 | Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. Pace compares the Claude and Codex weekly windows. If the larger headroom beats the smaller by more than the margin, that pool wins. Claude wins: Sonnet, `basis: policy`. Codex wins: Astra and Sol have no evidence between them, so they alternate, `basis: trial`. A difference at or below the margin rotates over every allowed tier-2 route (Sonnet → Astra → Sol → Sonnet), starting with Sonnet. Missing weekly data also rotates. When only one pool is allowed (for example after a quota stop), its routes alternate. Sol is allowed on both machines, so the PC rotates the same way. |
 | Missing quota | Failed reads or missing/invalid/expired windows are unknown, never zero usage. Notes say “quota unknown: hard stops not applied”; valid remaining windows still impose their stops. `--require-quota` checks only pools marked `readable: true` (Claude and Codex). Check the selected pool, plus both pools when the tier-2 choice uses pace or a quota preference. Unused fallback pools do not count. Unreadable pools such as Muse and local never block for quota; `why` says they rely on cooldowns. External instructions need no worker quota. |
@@ -321,7 +330,11 @@ OpenAI-authored work. Claude still requires its Claude provider and pool.
 | `quota.meteredFallback` | Ordered route IDs keyed by effective tier: tier 1 uses DeepSeek Flash then MiniMax; tier 2 uses Kimi then GLM; tier 3 must be empty. |
 
 Automatic paid fallback requires every subscription candidate to have been
-removed by a hard quota stop or cooldown. Any removal for exclusion, machine,
+removed by the 95% ceiling or by a cooldown (a `limit` set after a provider limit
+error). The Claude 80% reservation is not enough: if a subscription is held back
+only by that reservation and every other subscription is exhausted, `pick`
+returns `blocked` with the reason and offers no metered route. The owner decides.
+Any removal for exclusion, machine,
 missing local configuration, review vendor or an escalated repo rule prevents
 it. Duplicate candidates superseded by a repo/file preference are not removals.
 The fallback resolver still applies repo exclusions, machine limits, disabled
@@ -331,7 +344,11 @@ Tier 3 stops when limited; local and image kinds have no automatic paid list.
 The order is unmeasured and no card backs it, as `why` states. Cards cannot
 reorder an automatic paid fallback. Subscriptions always stay ahead of it.
 A repo/file rule may explicitly select a metered route, subject to the same
-eligibility checks.
+eligibility checks. This is intended and is not governed by the ceiling. The
+95% ceiling controls only the automatic metered fallback. A repo rule that names
+a model no subscription offers (for example Prelude's `gemini-flash`) is a
+deliberate choice, so it is offered even while subscriptions have room. It still
+needs spend approval: the result is `needs_approval`.
 
 Chosen metered workers return `status: "needs_approval"` and exit **5**, including
 `approval: { spawnArgv, costPer1M, route }` and `spawn: null`. The preview is for
