@@ -14,14 +14,18 @@ export function readJevKey({ env = process.env, configFile = localConfig,
   let envFile = env.TYPESAFE_ENV_FILE;
   const selectedConfig = !envFile && [configFile, xdgConfigFile].find(file => existsSync(file));
   if (selectedConfig) {
-    const config = JSON.parse(readFileSync(selectedConfig, 'utf8'));
-    if (typeof config.envFile !== 'string' || !config.envFile.trim()) {
+    let config;
+    try { config = JSON.parse(readFileSync(selectedConfig, 'utf8')); }
+    catch { throw new Error('Jev local config could not be read as JSON; check its envFile setting.'); }
+    if (typeof config?.envFile !== 'string' || !config.envFile.trim()) {
       throw new Error('Jev local config needs an envFile path.');
     }
     envFile = resolve(dirname(selectedConfig), config.envFile);
   }
   if (envFile) {
-    const key = parseEnv(readFileSync(envFile, 'utf8')).TYPESAFE_API_KEY?.trim();
+    let key;
+    try { key = parseEnv(readFileSync(envFile, 'utf8')).TYPESAFE_API_KEY?.trim(); }
+    catch { throw new Error('Configured Jev envFile could not be read or parsed.'); }
     if (key) return key;
     throw new Error('Configured Jev env file has no non-empty TYPESAFE_API_KEY.');
   }

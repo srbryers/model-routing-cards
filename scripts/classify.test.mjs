@@ -63,3 +63,20 @@ test('malformed response, errors and missing usage never invent evidence or leak
     assert.doesNotMatch(JSON.stringify(answer), /secret|fixture-key/);
   }
 });
+
+test('key errors propagate before a request instead of becoming classifier_unavailable', async () => {
+  await assert.rejects(classify(input, dependencies({}, { readKey: () => { throw Error('Configured Jev envFile could not be read'); },
+    fetchImpl: () => assert.fail('request after key error') })), /envFile could not be read/);
+});
+test('UTF-8 byte count bounds tokens in the budget preflight', async () => {
+  const brief = '界'.repeat(22_000);
+  let tokens;
+  await classify({ brief, execute: true }, { policy, budget: args => { tokens = args.maxInputTokens; assertJevBudget(args); },
+    readKey: () => 'fixture', fetchImpl: async (_, request) => {
+      assert.equal(tokens, Buffer.byteLength(request.body)); assert.ok(tokens > 64_000); return { ok: false };
+    } });
+  await assert.rejects(classify({ brief, execute: true, limitUsd: 0.0027 }, { policy,
+    readKey: () => assert.fail('budget must reject before key'), fetchImpl: () => assert.fail('network') }), /budget refused/);
+  await assert.rejects(classify({ brief: '界'.repeat(30_000), execute: true }, { policy,
+    budget: () => assert.fail('oversized input before budget') }), /80000 bytes/);
+});
