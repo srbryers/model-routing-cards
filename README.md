@@ -161,6 +161,15 @@ out because of the 95% ceiling or a cooldown. If Claude is held back only by the
 80% reserve, `pick` returns `blocked` instead, so you decide on spending.
 See [metered routing](policy/README.md#metered-routes).
 
+## Your own repo rules
+
+Rules for your own repos live in `~/.config/model-routing/policy.local.json`, not
+in the shared policy. `pick` merges that file into the public policy at load.
+Copy `policy/examples/policy.local.example.json` to start. A repo's own
+`.model-routing.json` outranks the local file, which outranks the public policy.
+A bad local file makes `pick` exit 2 with its path. `model-routing policy show`
+lists what loaded. See [policy details](policy/README.md#local-overlay).
+
 ## Record
 
 After the main thread verifies the work, record what happened:
@@ -348,7 +357,7 @@ your policy and live quota. Every decision says what it rests on, and it never
 names a winner from noise.
 
 It does not sit in a request path, proxy calls, or retry and fail over per
-request. Gateways (OpenRouter, LiteLLM, Prelude's `llm-proxy`) do that, and
+request. Gateways (OpenRouter, LiteLLM, your own proxy) do that, and
 can read this tool's policy as config.
 
 It is not an eval platform: no dashboards, tracing or online scoring.

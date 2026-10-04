@@ -30,7 +30,7 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `classifier` | `minProbability: 0.6` and `minMargin: 0.15` decide when Jev must defer. Both are validated from 0 to 1. |
 | `fieldEvidence` | Outcome counts needed to justify a real bake-off. Never used for route selection or card trust. |
 | `machines` | `default` names the preferred machine; other entries are machine IDs with descriptions. |
-| `repos` | Repo rules keyed by lowercase GitHub `owner/name`; each has `rules` and optional `machines`. |
+| `repos` | Public repo rules keyed by lowercase GitHub `owner/name`; each has `rules` and optional `machines`. Empty in this repo. Your own rules go in the [local overlay](#local-overlay). |
 
 ## Change the policy
 
@@ -58,9 +58,10 @@ its open questions. Benchmark evidence does not change policy by itself.
 
 ## Repo overrides
 
-The five real repo entries live here in `policy.json`, under `repos`. No files need
-to be added to those repos. For an optional local override, put
-`.model-routing.json` at the repo root (`examples/` has one generic sample):
+Repo rules come from three places. `policy.json` ships with none (`repos: {}`).
+Your own rules for your own repos go in the [local overlay](#local-overlay), so
+no files need to be added to those repos. A repo can also carry its own
+`.model-routing.json` at its root (`examples/` has one generic sample):
 
 ```json
 {
@@ -85,14 +86,15 @@ route rule wins over a rule that covers every kind (`kinds: ["*"]`) within the s
 exclusions accumulate across both sources; a file cannot re-enable an excluded
 route. Exclusions that remove every applicable route are invalid. Route IDs
 and exclusion entries must be strings. Matching notes are deduplicated and joined into each candidate's `note`.
-Machine precedence is file → central repo entry → all policy machines. A supplied
+Machine precedence is file → repo entry (local overlay, else public) → all policy machines. A supplied
 list replaces the inherited list and restricts every candidate. Each kind may
 appear in only one rule within each source. Source paths only name where a rule came from; they are never
 read as files. An override route must run on at least one allowed repo machine.
 
-For each kind, order is **repo file → `repos[owner/name]` → tier rules**. A file
-rule wins over a central rule for that kind; unmatched kinds keep central rules.
-An empty file does not erase central rules. Lower-priority routes remain as
+For each kind, order is **repo file → `repos[owner/name]` → tier rules**, where
+`repos[owner/name]` is the local overlay entry if there is one, otherwise the
+public entry. A file rule wins over an entry rule for that kind; unmatched kinds
+keep the entry's rules. An empty file does not erase entry rules. Lower-priority routes remain as
 fallbacks. After two failures, repo/file routes remain first but are marked
 `escalated: true`, followed by the escalated tier candidates minus excluded routes.
 `--failures` counts total failed attempts on the task: apply
@@ -109,26 +111,64 @@ quota, tries eligible fallbacks, then stops if none remain. Conflicting
 soft preferences are discarded in favor of pace; they do not block. Likewise, a review override
 cannot bypass the different-vendor rule; stop if no eligible reviewer remains.
 
-The central entries encode the supplied rules without reading other repos:
+## Local overlay
 
-- Wedding routes only `data-contract` to Astra. Its `high-risk-review` note says
-  "data-contract reviews go to OpenAI (AGENTS.md)" without rerouting other reviews.
-- Fathoms Game restricts all candidates to PC and uses Astra for its four listed
-  review/reasoning kinds.
-- Flora Studio uses Astra for `3d-work` and Luna for both ordinary review kinds.
-  Classify 3D review as `3d-work` to preserve its all-3D rule.
-- Prelude has explicit copy, visual, image, implementation and review rules; a
-  note covering every kind preserves Gate 5 independent review for every kind. The routine
-  review, multi-step coding, UI and architecture mappings are Sebastian's readings
-  of the repo role list, not verbatim rules; their `why` fields say so.
-- UI Kit excludes Muse for all kinds and carries the kit-curator gate note.
+Personal repo rules and personal wording live in
+`$XDG_CONFIG_HOME/model-routing/policy.local.json`, defaulting to
+`~/.config/model-routing/policy.local.json`. The file is not tracked and you manage it
+yourself. `policy/examples/policy.local.example.json` is a generic sample. `loadEffectivePolicy` merges
+it into the public policy at load, and `pick`, `limit` and `outcomes` all use the result.
 
-Prelude's product traffic (`model_config` behind `llm-proxy`) is out of scope, because that is the gateway side.
+| Key | Effect |
+|---|---|
+| `policyVersion` | Required. Must be `1`. |
+| `repos` | Same shape as `policy.repos`. An entry **replaces the public entry for the same key as a whole**; its rules and machines are not merged. |
+| `routes` | `{ "<route>": { "note": "..." } }`. Sets that route's `note`, replacing any public note. Not for external routes. |
+| `kinds` | `{ "<kind>": { "description": "..." } }`. Replaces only the description, which Jev reads when classifying. |
+| `instructions` | `{ "<external route>": "..." }`. Replaces the instruction text of an external route. |
+
+An overlay cannot add routes or kinds, or change tiers, quota, pools, machines,
+reasoning caps or any other hard rule. Unknown keys are errors. The merged policy
+goes through the same validator as the public file, so a repo rule that names a
+missing route, or breaks the Muse and review rules, is rejected.
+
+A missing file is fine. An unreadable, malformed or invalid file stops the command
+with exit code 2 and the file path plus each error. It is never ignored, because
+it changes routing. (`local.json` disables only the Pi route when it is bad; an
+overlay rule can touch any route, so there is no narrower thing to disable.)
+
+Precedence for a repo's rules, highest first:
+
+1. the repo's own `.model-routing.json`
+2. the local overlay entry for that repo
+3. the public `policy.repos` entry
+
+Replacement is per repo key. Lower sources stay as fallbacks behind a higher
+source's route, as with any other repo rule.
+
+Commands:
+
+- `model-routing policy show [--json]` prints the merged policy summary and which
+  files were loaded (`policy.json`, `policy.local.json`, `local.json`).
+- `model-routing policy export-local --from OLD.json` prints an overlay built from an
+  older policy file: all its `repos`, plus any `routes` notes, `kinds` descriptions
+  and `instructions` that named a person. It exports a text field only when the old
+  text equals the current public text with each "the user" replaced by a name; anything
+  else must match exactly. A field that looks name-bearing but also differs is not
+  exported; stderr lists it as `differs for other reasons: <field path>` to check by hand.
+  It prints only; redirect it yourself: `model-routing policy export-local --from
+  old.json > ~/.config/model-routing/policy.local.json`. It checks the result against
+  the current policy before printing.
 
 ## API boundary
 
-- `loadPolicy(path?)` synchronously reads, validates and deeply freezes policy.
+- `loadPolicy(path?)` synchronously reads, validates and deeply freezes the public policy.
   Its default path is relative to the module, independent of the working directory.
+- `loadEffectivePolicy({ env, readFile, publicPath }?)` from `model-routing-cards/policy-local`
+  returns `{ policy, sources, effects }`: the public policy merged with the local overlay,
+  validated and frozen. It throws a `TypeError` naming the overlay path when that file is
+  unreadable or invalid. `validateOverlay(overlay, policy)` and
+  `exportLocal(oldPolicy, currentPolicy)` are pure.
 - `loadOverride(repoDir)` does the same for the repo override against the default
   policy; only an absent file returns `null`. For a custom policy, pass parsed
   override data to `validateOverride(override, policy)`.
@@ -309,7 +349,7 @@ reorder an automatic paid fallback. Subscriptions always stay ahead of it.
 A repo/file rule may explicitly select a metered route, subject to the same
 eligibility checks. This is intended and is not governed by the ceiling. The
 95% ceiling controls only the automatic metered fallback. A repo rule that names
-a model no subscription offers (for example Prelude's `gemini-flash`) is a
+a model no subscription offers (for example `gemini-flash`) is a
 deliberate choice, so it is offered even while subscriptions have room. It still
 needs spend approval: the result is `needs_approval`.
 
@@ -346,12 +386,12 @@ and `gemini-2.5-pro` because it is an older line.
 
 These are Gemini-specific choices, not general coding fallbacks; they are absent
 from `quota.meteredFallback`. A repo can route `visual-implementation` to
-`gemini-flash`; the global default remains tier-3 Opus. Prelude does this for
-narrowly scoped visual work, with Astra reasoning and directing. The unused
-external `gemini-visual` route was removed. Prelude copy stays on external
-`gemini-copy`, because its CLAUDE.md requires `scripts/content_draft.py`.
-The rule format supports one preferred route, so the optional `gemini-flash`
-drafting path is a note, not a second candidate: check CLAUDE.md first.
+`gemini-flash`; the global default remains tier-3 Opus. That suits narrowly
+scoped visual work, with Astra reasoning and directing. The unused external
+`gemini-visual` route was removed. A repo whose own instructions require a drafting
+script for copy can keep `user-facing-copy` on external `gemini-copy`.
+The rule format supports one preferred route, so an optional `gemini-flash`
+drafting path is a note, not a second candidate.
 
 ## Field evidence
 

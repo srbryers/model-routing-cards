@@ -1,0 +1,165 @@
+{
+  "policyVersion": 1,
+  "repos": {
+    "acme/data-app": {
+      "rules": [
+        {
+          "kinds": [
+            "data-contract"
+          ],
+          "route": "astra",
+          "source": "AGENTS.md",
+          "why": "Data contracts go to OpenAI under AGENTS.md."
+        },
+        {
+          "kinds": [
+            "high-risk-review"
+          ],
+          "note": "data-contract reviews go to OpenAI (AGENTS.md)",
+          "source": "AGENTS.md",
+          "why": "Only data-contract reviews have an OpenAI requirement; other high-risk reviews keep shared routing."
+        }
+      ]
+    },
+    "acme/game-app": {
+      "machines": [
+        "pc"
+      ],
+      "rules": [
+        {
+          "kinds": [
+            "routine-review",
+            "high-risk-review",
+            "architecture",
+            "hard-bug-fix"
+          ],
+          "route": "astra",
+          "source": "docs/agent/act0-model-routing.md",
+          "why": "Substantive review and reasoning go to Astra; this 8 GB repo runs on PC."
+        }
+      ]
+    },
+    "acme/studio-3d": {
+      "rules": [
+        {
+          "kinds": [
+            "3d-work"
+          ],
+          "route": "astra",
+          "source": "CLAUDE.md",
+          "why": "All 3D work goes to Astra."
+        },
+        {
+          "kinds": [
+            "routine-review",
+            "first-pass-review"
+          ],
+          "route": "luna",
+          "source": "docs/agent/model-delegation.md",
+          "why": "Luna is the default for non-3D review."
+        }
+      ]
+    },
+    "acme/coach-app": {
+      "rules": [
+        {
+          "kinds": [
+            "*"
+          ],
+          "source": ".claude/rules/sprint-protocol.md",
+          "why": "Implementation must receive independent review.",
+          "note": "Independent review of every implementation (Gate 5). An author never approves its own change."
+        },
+        {
+          "kinds": [
+            "user-facing-copy"
+          ],
+          "route": "gemini-copy",
+          "source": "CLAUDE.md",
+          "why": "Agents must not write user-facing copy; simple declarative strings are quick-edit.",
+          "note": "Gemini via acp-gemini (`gemini-flash`), for drafting when content_draft.py is not the tool for the job; check CLAUDE.md first."
+        },
+        {
+          "kinds": [
+            "high-risk-review",
+            "routine-review"
+          ],
+          "route": "astra",
+          "source": ".codex/agents/",
+          "why": "Critical review. These kind mappings are the user's readings of the repo's role list, not verbatim rules.",
+          "reasoning": "high"
+        },
+        {
+          "kinds": [
+            "bounded-build",
+            "multi-step-coding"
+          ],
+          "route": "gpt-5.5",
+          "source": ".codex/agents/",
+          "why": "Bounded implementation. These kind mappings are the user's readings of the repo's role list, not verbatim rules.",
+          "reasoning": "medium"
+        },
+        {
+          "kinds": [
+            "quick-edit",
+            "simple-bug-fix"
+          ],
+          "route": "terra",
+          "source": ".codex/agents/",
+          "why": "Small, clear fix.",
+          "reasoning": "medium"
+        },
+        {
+          "kinds": [
+            "docs"
+          ],
+          "route": "luna",
+          "source": ".codex/agents/",
+          "why": "Documentation uses Luna.",
+          "reasoning": "low"
+        },
+        {
+          "kinds": [
+            "visual-implementation"
+          ],
+          "route": "gemini-flash",
+          "source": "skills/gemini-ui-design/SKILL.md",
+          "why": "Gemini via acp-gemini implements narrowly scoped visual tasks with a settled design. Astra reasons and directs.",
+          "note": "Astra reasons and directs; keep visual implementation narrowly scoped."
+        },
+        {
+          "kinds": [
+            "ui-visual",
+            "architecture"
+          ],
+          "route": "astra",
+          "source": "skills/gemini-ui-design/SKILL.md",
+          "why": "Astra reasons and directs. These kind mappings are the user's readings of the repo's role list, not verbatim rules."
+        },
+        {
+          "kinds": [
+            "image-generation"
+          ],
+          "route": "openai-image",
+          "source": "CLAUDE.md",
+          "why": "Use OpenAI image generation."
+        }
+      ]
+    },
+    "acme/kit-lib": {
+      "rules": [
+        {
+          "kinds": [
+            "*"
+          ],
+          "excludeRoutes": [
+            "muse"
+          ],
+          "source": "user instruction (2026-10-04)",
+          "why": "Kit changes require a skill-driven gate.",
+          "note": "Kit changes go through the kit-curator gate (skill-driven); Muse follows skills poorly."
+        }
+      ]
+    }
+  }
+}

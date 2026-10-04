@@ -110,7 +110,7 @@
     },
     "gemini-copy": {
       "type": "external",
-      "instruction": "Draft through the repo's `scripts/content_draft.py` (OpenRouter `google/gemini-3.8-flash`). Run with `--execute` only after the user authorises the spend.",
+      "instruction": "Draft through the repo's `scripts/content_draft.py` (OpenRouter `google/gemini-3.8-flash`). Run with `--execute` only after Sebastian authorises the spend.",
       "requiresSpendApproval": true,
       "vendor": "google",
       "pool": "metered"
@@ -424,7 +424,7 @@
     "bounded-build": {
       "tier": 1,
       "reasoning": "high",
-      "description": "One new feature slice, endpoint or script from a clear brief, in one or two files. Domain kinds (iOS, UI, 3D, data contract, user-facing copy) win.",
+      "description": "One feature slice, endpoint or script from a clear brief.",
       "candidates": [
         "muse"
       ],
@@ -435,7 +435,7 @@
     "quick-edit": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Renames, small scoped refactors, lint and type fixes. No new behavior. Domain kinds (iOS, UI, 3D, data contract, user-facing copy) win.",
+      "description": "Renames, scoped refactors, lint and type fixes.",
       "candidates": [
         "muse"
       ],
@@ -446,7 +446,7 @@
     "write-tests": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Adding or changing tests only, in any codebase, including iOS. No product code changes. A task that also fixes product code is a bug fix or multi-step coding.",
+      "description": "Tests for existing code.",
       "candidates": [
         "muse"
       ],
@@ -457,7 +457,7 @@
     "docs": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Docs for developers: READMEs, AGENTS.md, code comments and changelogs. Not copy that product users read.",
+      "description": "Docs, READMEs, AGENTS.md, changelogs and copy passes.",
       "candidates": [
         "muse"
       ],
@@ -468,7 +468,7 @@
     "scouting": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Read-only investigation: explain code, locate files, map a repo or summarize a PR. No changes.",
+      "description": "Read-only investigation: explain code, locate files, map a repo or summarize a PR.",
       "candidates": [
         "muse"
       ],
@@ -479,7 +479,7 @@
     "first-pass-review": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "A first look at Muse or tier-1 output, never the merge gate. A higher-risk review kind wins.",
+      "description": "First review of a diff, never the merge gate.",
       "candidates": [
         "muse"
       ],
@@ -490,7 +490,7 @@
     "simple-bug-fix": {
       "tier": 1,
       "reasoning": "high",
-      "description": "Fix a bug whose cause is known, or obvious from the repro, with a clear and bounded fix. A stack trace or repro that points to the failing code counts as an obvious cause. Includes adding a test for it. If the cause must be found, it is hard-bug-fix.",
+      "description": "Fix a bug with a clear reproduction.",
       "candidates": [
         "muse"
       ],
@@ -501,7 +501,7 @@
     "multi-step-coding": {
       "tier": 2,
       "reasoning": "high",
-      "description": "A larger change across several files or long-running coding work. Includes adding tests and fixing the code they expose across several modules. Migration and the domain kinds win.",
+      "description": "A feature across several files or long-running coding work.",
       "candidates": [
         "sonnet",
         "astra",
@@ -512,7 +512,7 @@
     "migration": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Moving code to a new API, framework, version or structure, and large refactors. Wins over multi-step-coding when the move is the main goal.",
+      "description": "Code migrations and larger refactors.",
       "candidates": [
         "sonnet",
         "astra",
@@ -523,7 +523,7 @@
     "hard-bug-fix": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Fix a bug whose cause is unknown and must be investigated, even if the symptom reproduces. If the brief says to find the cause, it is this kind. Use this when the repro or trace does not point to the cause. Includes writing tests to find unknown bugs and fixing what they expose.",
+      "description": "Diagnose and fix a bug with no clear reproduction or an unknown cause.",
       "candidates": [
         "sonnet",
         "astra",
@@ -534,7 +534,7 @@
     "ci-terminal": {
       "tier": 2,
       "reasoning": "high",
-      "description": "Failing pipelines, build scripts and environment fixes. Not bugs in product code.",
+      "description": "Failing pipelines, build scripts and environment fixes.",
       "candidates": [
         "sonnet",
         "astra",
@@ -545,7 +545,7 @@
     "routine-review": {
       "tier": 2,
       "reasoning": "medium",
-      "description": "Review of tier-2 work. high-risk-review wins when the risk is higher.",
+      "description": "Review of Muse or tier-2 work.",
       "candidates": [
         "sonnet",
         "astra",
@@ -570,7 +570,7 @@
     "3d-work": {
       "tier": 2,
       "reasoning": "high",
-      "description": "3D modeling, geometry, materials, shaders and spatial work. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
+      "description": "3D modeling, geometry, materials, shaders and spatial work.",
       "candidates": [
         "sonnet",
         "astra",
@@ -581,7 +581,7 @@
     "ui-visual": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "UI and visual design or build where the design is not settled: new screens, layout, look and feel. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
+      "description": "UI and visual work.",
       "candidates": [
         "opus"
       ],
@@ -590,7 +590,7 @@
     "ios": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "Work inside an iOS app: Swift, Xcode, simulator, device and App Store problems. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
+      "description": "iOS work.",
       "candidates": [
         "opus"
       ],
@@ -599,7 +599,7 @@
     "architecture": {
       "tier": 3,
       "reasoning": "xhigh",
-      "description": "Choosing how a system is structured: boundaries, technologies and trade-offs. Not schema or API design.",
+      "description": "Architecture decisions.",
       "candidates": [
         "opus"
       ],
@@ -608,7 +608,7 @@
     "high-risk-review": {
       "tier": 3,
       "reasoning": "high",
-      "description": "Review of security, data contracts or UI, and anything about to merge to a deploy branch. Wins over the other review kinds.",
+      "description": "UI, security or data-contract review, and anything about to merge to a deploy branch.",
       "candidates": [
         "opus"
       ],
@@ -617,7 +617,7 @@
     "data-contract": {
       "tier": 3,
       "reasoning": "high",
-      "description": "Design or change data contracts, schemas or API shapes. Wins over quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
+      "description": "Design or change data contracts, schemas or API shapes.",
       "candidates": [
         "opus"
       ],
@@ -654,7 +654,7 @@
     "user-facing-copy": {
       "tier": 1,
       "reasoning": "medium",
-      "description": "Writing or rewriting copy a product's users read: onboarding text, chat copy, error messages and marketing. Not button labels, field names or menu items. Wins over docs, quick-edit, bounded-build and multi-step-coding; tests-only work is write-tests.",
+      "description": "Writing or rewriting copy a product's users read: onboarding text, chat copy, error messages and marketing. Not button labels, field names or menu items.",
       "candidates": [
         "muse"
       ],
@@ -688,7 +688,6 @@
   },
   "quota": {
     "overridesBeatHardStops": false,
-    "ceilingPercent": 95,
     "thresholds": [
       {
         "pool": "claude",
@@ -795,7 +794,168 @@
     },
     "default": "mac-studio"
   },
-  "repos": {},
+  "repos": {
+    "srbryers/wedding": {
+      "rules": [
+        {
+          "kinds": [
+            "data-contract"
+          ],
+          "route": "astra",
+          "source": "AGENTS.md",
+          "why": "Data contracts go to OpenAI under AGENTS.md."
+        },
+        {
+          "kinds": [
+            "high-risk-review"
+          ],
+          "note": "data-contract reviews go to OpenAI (AGENTS.md)",
+          "source": "AGENTS.md",
+          "why": "Only data-contract reviews have an OpenAI requirement; other high-risk reviews keep shared routing."
+        }
+      ]
+    },
+    "srbryers/fathoms-game": {
+      "machines": [
+        "pc"
+      ],
+      "rules": [
+        {
+          "kinds": [
+            "routine-review",
+            "high-risk-review",
+            "architecture",
+            "hard-bug-fix"
+          ],
+          "route": "astra",
+          "source": "docs/agent/act0-model-routing.md",
+          "why": "Substantive review and reasoning go to Astra; this 8 GB repo runs on PC."
+        }
+      ]
+    },
+    "srbryers/flora-studio": {
+      "rules": [
+        {
+          "kinds": [
+            "3d-work"
+          ],
+          "route": "astra",
+          "source": "CLAUDE.md",
+          "why": "All 3D work goes to Astra."
+        },
+        {
+          "kinds": [
+            "routine-review",
+            "first-pass-review"
+          ],
+          "route": "luna",
+          "source": "docs/agent/model-delegation.md",
+          "why": "Luna is the default for non-3D review."
+        }
+      ]
+    },
+    "srbryers/prelude-social-skills-coach": {
+      "rules": [
+        {
+          "kinds": [
+            "*"
+          ],
+          "source": ".claude/rules/sprint-protocol.md",
+          "why": "Implementation must receive independent review.",
+          "note": "Independent review of every implementation (Gate 5). An author never approves its own change."
+        },
+        {
+          "kinds": [
+            "user-facing-copy"
+          ],
+          "route": "gemini-copy",
+          "source": "CLAUDE.md",
+          "why": "Agents must not write user-facing copy; simple declarative strings are quick-edit.",
+          "note": "Gemini via acp-gemini (`gemini-flash`), for drafting when content_draft.py is not the tool for the job; check CLAUDE.md first."
+        },
+        {
+          "kinds": [
+            "high-risk-review",
+            "routine-review"
+          ],
+          "route": "astra",
+          "source": ".codex/agents/",
+          "why": "Critical review. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules.",
+          "reasoning": "high"
+        },
+        {
+          "kinds": [
+            "bounded-build",
+            "multi-step-coding"
+          ],
+          "route": "gpt-5.5",
+          "source": ".codex/agents/",
+          "why": "Bounded implementation. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules.",
+          "reasoning": "medium"
+        },
+        {
+          "kinds": [
+            "quick-edit",
+            "simple-bug-fix"
+          ],
+          "route": "terra",
+          "source": ".codex/agents/",
+          "why": "Small, clear fix.",
+          "reasoning": "medium"
+        },
+        {
+          "kinds": [
+            "docs"
+          ],
+          "route": "luna",
+          "source": ".codex/agents/",
+          "why": "Documentation uses Luna.",
+          "reasoning": "low"
+        },
+        {
+          "kinds": [
+            "visual-implementation"
+          ],
+          "route": "gemini-flash",
+          "source": "~/.claude/skills/gemini-ui-design/SKILL.md",
+          "why": "Gemini via acp-gemini implements narrowly scoped visual tasks with a settled design. Astra reasons and directs.",
+          "note": "Astra reasons and directs; keep visual implementation narrowly scoped."
+        },
+        {
+          "kinds": [
+            "ui-visual",
+            "architecture"
+          ],
+          "route": "astra",
+          "source": "~/.claude/skills/gemini-ui-design/SKILL.md",
+          "why": "Astra reasons and directs. These kind mappings are Sebastian's readings of the repo's role list, not verbatim rules."
+        },
+        {
+          "kinds": [
+            "image-generation"
+          ],
+          "route": "openai-image",
+          "source": "CLAUDE.md",
+          "why": "Use OpenAI image generation."
+        }
+      ]
+    },
+    "srbryers/ui-kit": {
+      "rules": [
+        {
+          "kinds": [
+            "*"
+          ],
+          "excludeRoutes": [
+            "muse"
+          ],
+          "source": "user instruction (2026-10-04)",
+          "why": "Kit changes require a skill-driven gate.",
+          "note": "Kit changes go through the kit-curator gate (skill-driven); Muse follows skills poorly."
+        }
+      ]
+    }
+  },
   "fieldEvidence": {
     "minOutcomesPerRoute": 5,
     "minRoutes": 2

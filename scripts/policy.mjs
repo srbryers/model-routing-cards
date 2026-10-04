@@ -403,7 +403,7 @@ function validateRules(override, policy, versioned) {
 function assertValid(result, label) {
   if (!result.ok) throw new TypeError(`Invalid ${label}:\n${result.errors.join('\n')}`);
 }
-function freeze(value) {
+export function freeze(value) {
   if (value && typeof value === 'object') {
     for (const child of Object.values(value)) freeze(child);
     Object.freeze(value);
@@ -411,7 +411,7 @@ function freeze(value) {
   return value;
 }
 
-function parseUniqueJson(text) {
+export function parseUniqueJson(text) {
   const value = JSON.parse(text);
   // ⚠ JSON.parse accepts duplicate keys. Scan valid JSON before trusting its result,
   // comparing decoded keys so escaped spellings cannot hide a duplicate.
@@ -434,8 +434,12 @@ function parseUniqueJson(text) {
   return value;
 }
 
-/** Synchronous JSON loaders; source paths in rules are never opened. */
-export function loadPolicy(path = new URL('../policy/policy.json', import.meta.url)) {
+export const PUBLIC_POLICY = new URL('../policy/policy.json', import.meta.url);
+
+/** Synchronous JSON loaders; source paths in rules are never opened. `loadPolicy` reads
+ *  the public policy only. Use `loadEffectivePolicy` (policy-local.mjs) to include the
+ *  user's local overlay. */
+export function loadPolicy(path = PUBLIC_POLICY) {
   const policy = parseUniqueJson(readFileSync(path, 'utf8'));
   assertValid(validatePolicy(policy), 'policy');
   return freeze(policy);

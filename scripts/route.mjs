@@ -8,7 +8,7 @@
  * and it never names a winner from noise.
  *
  * It does not sit in a request path, proxy calls, or retry and fail over per
- * request. Gateways (OpenRouter, LiteLLM, Prelude's `llm-proxy`) do that, and
+ * request. Gateways (OpenRouter, LiteLLM, your own proxy) do that, and
  * can read this tool's policy as config.
  *
  * It is not an eval platform: no dashboards, tracing or online scoring.
@@ -60,7 +60,7 @@ function devVar(name, dir) {
       /* ⚠⚠ THE LAST ASSIGNMENT WINS, AND `String.match` GIVES YOU THE FIRST. A
          shell sourcing the file, and every dotenv, take the last assignment of a
          repeated key. A first-wins read disagrees with them, and the script is
-         the one that is wrong. Measured in the wedding repo: `.env` carried
+         the one that is wrong. Measured in a private repo: `.env` carried
          `ADMIN_PASSWORD` twice, the empty one first, so a first-wins read
          returned '' and the run reported the key ABSENT while the shell had the
          value the whole time. It cost an afternoon and two wrong diagnoses. */

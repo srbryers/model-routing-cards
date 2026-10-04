@@ -1,0 +1,33 @@
+{
+  "policyVersion": 1,
+  "repos": {
+    "your-org/your-repo": {
+      "machines": ["mac-studio"],
+      "rules": [
+        {
+          "kinds": ["bounded-build", "quick-edit"],
+          "route": "luna",
+          "reasoning": "medium",
+          "source": "AGENTS.md",
+          "why": "This repo uses Luna for small implementation tasks."
+        },
+        {
+          "kinds": ["*"],
+          "excludeRoutes": ["muse"],
+          "source": "docs/agents.md",
+          "why": "Changes here go through a skill-driven review.",
+          "note": "Run the review skill before merging."
+        }
+      ]
+    }
+  },
+  "routes": {
+    "astra": { "note": "Preferred for data-contract work in my repos." }
+  },
+  "kinds": {
+    "docs": { "description": "Docs and READMEs for my projects, including changelog entries." }
+  },
+  "instructions": {
+    "gemini-copy": "Draft through the repo's `scripts/content_draft.py`. Run with `--execute` only after Alex authorises the spend."
+  }
+}

@@ -5,12 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { TRUST } from './card.mjs';
+import { loadPolicyWithTestRepos } from './fixtures/with-test-repos.mjs';
 import { loadPolicy, loadOverride, validatePolicy, validateOverride,
   kindsForClassifier, resolveCandidates, parseRepoUrl, repoKey } from './policy.mjs';
 
-const policy = loadPolicy();
+const policy = loadPolicyWithTestRepos();
 const copy = () => structuredClone(policy);
-const repoEntry = name => policy.repos[`srbryers/${name}`];
+const repoEntry = name => policy.repos[`acme/${name}`];
 const example = () => JSON.parse(readFileSync(new URL('../policy/examples/example.model-routing.json', import.meta.url), 'utf8'));
 const rule = (route, kinds = ['quick-edit'], extra = {}) => ({ policyVersion: 1,
   rules: [{ kinds, route, source: 'AGENTS.md', why: 'Repo rule.', ...extra }] });
@@ -32,7 +33,7 @@ test('default policy validates, preserves all 23 kinds, and matches the trust ga
     [['claude', 'five-hour', 70], ['claude', 'five-hour', 80], ['codex', 'weekly', 85]]);
   assert.deepEqual(policy.quota.limitErrors, [{ route: 'muse', fallback: 'luna', cooldownHours: 5 }]);
 });
-for (const name of ['wedding', 'fathoms-game', 'flora-studio']) {
+for (const name of ['data-app', 'game-app', 'studio-3d']) {
   test(`${name} central repo rules validate`, () => assert.deepEqual(validateOverride({ policyVersion: 1, ...repoEntry(name) }, policy), { ok: true, errors: [] }));
 }
 
@@ -73,9 +74,9 @@ const badPolicies = [
   ['untrusted cards', p => p.cards.requireTrust = 'SINGLE_CANDIDATE', /must be CALIBRATED/],
   ['stale card drift', p => p.cards.maxAgeDays = 31, /must match TRUST.STALE_DAYS/],
   ['invalid date', p => p.updated = '2026-02-30', /valid YYYY-MM-DD/],
-  ['invalid repo key', p => p.repos['not-a-repo'] = p.repos['srbryers/wedding'], /invalid GitHub repo key/],
-  ['invalid repo rule', p => p.repos['srbryers/wedding'].rules[0].route = 'typo', /repos.srbryers\/wedding.*unknown route id/],
-  ['central PC-only Muse', p => p.repos['srbryers/fathoms-game'].rules[0].route = 'muse', /Muse is mac-studio only/],
+  ['invalid repo key', p => p.repos['not-a-repo'] = p.repos['acme/data-app'], /invalid GitHub repo key/],
+  ['invalid repo rule', p => p.repos['acme/data-app'].rules[0].route = 'typo', /repos.acme\/data-app.*unknown route id/],
+  ['central PC-only Muse', p => p.repos['acme/game-app'].rules[0].route = 'muse', /Muse is mac-studio only/],
   ['typo field', p => p.kinds.docs.reasning = 'high', /reasning is not supported/],
 ];
 for (const [name, change, pattern] of badPolicies) {
@@ -190,16 +191,16 @@ test('two failures escalate tier 2 to Opus xhigh; terminal tiers stay unchanged'
   }
 });
 
-test('flora: Astra for 3D, Luna for review; overrides deduplicate and retain policy fallbacks', () => {
-  const repo = 'srbryers/flora-studio';
+test('studio: Astra for 3D, Luna for review; overrides deduplicate and retain policy fallbacks', () => {
+  const repo = 'acme/studio-3d';
   assert.deepEqual(ids(resolveCandidates(policy, '3d-work', { repo }).candidates), ['astra', 'sonnet', 'sol']);
   assert.deepEqual(ids(resolveCandidates(policy, 'first-pass-review', { repo }).candidates), ['luna', 'muse']);
   assert.equal(resolveCandidates(policy, 'routine-review', { repo }).candidates[0].route, 'luna');
   assert.match(resolveCandidates(policy, '3d-work', { repo }).candidates[0].reason, /CLAUDE.md/);
 });
 
-test('fathoms: all kinds are PC-only and never use Muse or Pi', () => {
-  const repo = 'srbryers/fathoms-game';
+test('game: all kinds are PC-only and never use Muse or Pi', () => {
+  const repo = 'acme/game-app';
   for (const kind of Object.keys(policy.kinds)) {
     const result = resolveCandidates(policy, kind, { repo }).candidates;
     assert.ok(result.length > 0);
@@ -210,8 +211,8 @@ test('fathoms: all kinds are PC-only and never use Muse or Pi', () => {
   assert.deepEqual(resolveCandidates(policy, 'quick-edit', { repo, machine: 'mac-studio' }).candidates, []);
 });
 
-test('wedding routes contracts to Astra and only notes its contract-review rule', () => {
-  const repo = 'srbryers/wedding';
+test('data-app routes contracts to Astra and only notes its contract-review rule', () => {
+  const repo = 'acme/data-app';
   assert.equal(resolveCandidates(policy, 'data-contract', { repo }).candidates[0].route, 'astra');
   const review = resolveCandidates(policy, 'high-risk-review', { repo }).candidates[0];
   assert.equal(review.route, 'opus');
@@ -264,12 +265,12 @@ test('generic override example validates', () => {
 });
 
 test('file rules beat central rules; unmatched kinds and omitted machines inherit repo settings', () => {
-  const repo = 'srbryers/fathoms-game';
+  const repo = 'acme/game-app';
   const override = rule('sonnet', ['architecture'], { reasoning: 'high' });
   const result = resolveCandidates(policy, 'architecture', { repo, override }).candidates;
   assert.deepEqual(ids(result), ['sonnet', 'astra', 'opus']);
   assert.match(result[0].reason, /repo override/);
-  assert.match(result[1].reason, /policy repo srbryers\/fathoms-game/);
+  assert.match(result[1].reason, /policy repo acme\/game-app/);
   assert.ok(result.every(c => JSON.stringify(c.machines) === '["pc"]'));
   assert.equal(resolveCandidates(policy, 'hard-bug-fix', { repo, override }).candidates[0].route, 'astra');
   assert.deepEqual(ids(resolveCandidates(policy, 'quick-edit', { repo, override }).candidates), ['luna']);
@@ -279,7 +280,7 @@ test('file rules beat central rules; unmatched kinds and omitted machines inheri
 
 test('unknown repo uses shared policy and an empty file does not erase central rules', () => {
   assert.deepEqual(resolveCandidates(policy, 'architecture', { repo: 'someone/unknown' }).candidates, resolveCandidates(policy, 'architecture').candidates);
-  assert.equal(resolveCandidates(policy, 'architecture', { repo: 'srbryers/fathoms-game', override: { policyVersion: 1, rules: [] } }).candidates[0].route, 'astra');
+  assert.equal(resolveCandidates(policy, 'architecture', { repo: 'acme/game-app', override: { policyVersion: 1, rules: [] } }).candidates[0].route, 'astra');
   assert.throws(() => resolveCandidates(policy, 'docs', { repo: 42 }).candidates, /repo must be/);
 });
 
@@ -308,16 +309,16 @@ test('repoKey injects a local Git call with separate arguments and handles a mis
     assert.equal(file, 'git');
     assert.deepEqual(args, ['-C', repoDir, 'remote', 'get-url', 'origin']);
     assert.equal(options.encoding, 'utf8');
-    return 'git@github.com:SRBRYERS/Wedding.git\n';
+    return 'git@github.com:ACME/Data-App.git\n';
   };
-  assert.equal(repoKey(repoDir, { execFile }), 'srbryers/wedding');
+  assert.equal(repoKey(repoDir, { execFile }), 'acme/data-app');
   assert.equal(repoKey(repoDir, { execFile: () => { throw Object.assign(new Error('No such remote'), { status: 2 }); } }), null);
   assert.equal(repoKey(repoDir, { execFile: () => 'https://gitlab.com/o/n' }), null);
   assert.throws(() => repoKey(repoDir, { execFile: () => { throw Object.assign(new Error('git missing'), { code: 'ENOENT' }); } }), /git missing/);
 });
 
-test('external Prelude routes preserve instructions and approval flags without spawn fields', () => {
-  const repo = 'srbryers/prelude-social-skills-coach';
+test('external coach-app routes preserve instructions and approval flags without spawn fields', () => {
+  const repo = 'acme/coach-app';
   for (const [kind, id] of [['user-facing-copy', 'gemini-copy'], ['image-generation', 'openai-image']]) {
     const [candidate] = resolveCandidates(policy, kind, { repo, machine: 'pc' }).candidates;
     assert.equal(candidate.route, id);
@@ -351,8 +352,8 @@ test('BB route type defaults to bb and unknown types are rejected', () => {
   invalid(validatePolicy(p), /type must be bb or external/);
 });
 
-test('Prelude applies model and reasoning rules, including the independent-review note', () => {
-  const repo = 'srbryers/prelude-social-skills-coach';
+test('coach-app applies model and reasoning rules, including the independent-review note', () => {
+  const repo = 'acme/coach-app';
   for (const [kind, route, reasoning] of [['quick-edit', 'terra', 'medium'], ['simple-bug-fix', 'terra', 'medium'],
     ['bounded-build', 'gpt-5.5', 'medium'], ['multi-step-coding', 'gpt-5.5', 'medium'],
     ['docs', 'luna', 'low'], ['high-risk-review', 'astra', 'high'], ['routine-review', 'astra', 'high'],
@@ -365,7 +366,7 @@ test('Prelude applies model and reasoning rules, including the independent-revie
 });
 
 test('UI Kit wildcard excludes Muse for every kind, even after escalation or a file preference', () => {
-  const repo = 'srbryers/ui-kit';
+  const repo = 'acme/kit-lib';
   for (const kind of Object.keys(policy.kinds)) for (const failures of [0, 2]) {
     const candidates = resolveCandidates(policy, kind, { repo, failures }).candidates;
     assert.ok(candidates.length > 0, kind);
@@ -397,8 +398,8 @@ test('rule validation rejects unknown exclusions, mixed wildcards and empty acti
 });
 
 test('repo arguments normalize case and .git suffix; malformed keys throw', () => {
-  const expected = resolveCandidates(policy, 'quick-edit', { repo: 'srbryers/ui-kit' });
-  for (const repo of ['SrBryers/UI-Kit', 'SRBRYERS/UI-KIT.GIT']) {
+  const expected = resolveCandidates(policy, 'quick-edit', { repo: 'acme/kit-lib' });
+  for (const repo of ['Acme/Kit-Lib', 'ACME/KIT-LIB.GIT']) {
     assert.deepEqual(resolveCandidates(policy, 'quick-edit', { repo }), expected);
   }
   assert.deepEqual(ids(expected.candidates), ['luna']);
@@ -412,23 +413,23 @@ test('rule route and excluded route identifiers must be strings', () => {
     invalid(validateOverride(rule(route), policy), /route must be a string/);
   }
   invalid(validateOverride(rule('astra', ['docs'], { excludeRoutes: [['muse']] }), policy), /entries must be strings/);
-  const p = copy(); p.repos['srbryers/wedding'].rules[0].route = ['astra'];
+  const p = copy(); p.repos['acme/data-app'].rules[0].route = ['astra'];
   invalid(validatePolicy(p), /route must be a string/);
 });
 
 test('repoKey decodes injected Buffer output', () => {
-  assert.equal(repoKey('/unused', { execFile: () => Buffer.from('git@github.com:SrBryers/UI-Kit.git\n') }), 'srbryers/ui-kit');
-  assert.equal(parseRepoUrl('git@github.com-work:srbryers/ui-kit.git'), null);
+  assert.equal(repoKey('/unused', { execFile: () => Buffer.from('git@github.com:Acme/Kit-Lib.git\n') }), 'acme/kit-lib');
+  assert.equal(parseRepoUrl('git@github.com-work:acme/kit-lib.git'), null);
 });
 
 test('repo escalation retains marked preference before next-tier candidates', () => {
-  const result = resolveCandidates(policy, 'docs', { repo: 'srbryers/prelude-social-skills-coach', failures: 2 });
+  const result = resolveCandidates(policy, 'docs', { repo: 'acme/coach-app', failures: 2 });
   assert.deepEqual(ids(result.candidates), ['luna', 'sonnet', 'astra', 'sol']);
   assert.deepEqual(result.candidates.map(c => [c.source, c.tier, c.fallback, c.escalated]),
     [['repo', 2, false, true], ['tier', 2, true, true], ['tier', 2, true, true], ['tier', 2, true, true]]);
   assert.equal(result.candidates[0].reasoning, 'low');
   const override = { policyVersion: 1, rules: [{ kinds: ['docs'], excludeRoutes: ['sonnet'], source: 'AGENTS.md', why: 'Use another vendor.' }] };
-  const filtered = resolveCandidates(policy, 'docs', { repo: 'srbryers/prelude-social-skills-coach', override, failures: 2 });
+  const filtered = resolveCandidates(policy, 'docs', { repo: 'acme/coach-app', override, failures: 2 });
   assert.deepEqual(ids(filtered.candidates), ['luna', 'astra', 'sol']);
   assert.ok(filtered.blocked.some(b => b.route === 'sonnet' && /excluded/.test(b.why)));
 });
@@ -440,7 +441,7 @@ test('candidate shape includes provenance and distinguishes declared fallbacks',
   assert.deepEqual(Object.keys(result.candidates[0]).sort(), keys.sort());
   assert.equal(result.candidates[0].fallback, false);
   assert.equal(result.candidates[1].fallback, true);
-  const external = resolveCandidates(policy, 'user-facing-copy', { repo: 'srbryers/prelude-social-skills-coach' }).candidates[0];
+  const external = resolveCandidates(policy, 'user-facing-copy', { repo: 'acme/coach-app' }).candidates[0];
   for (const key of keys) assert.ok(Object.hasOwn(external, key), key);
   assert.equal(external.tier, 1);
   assert.equal(external.source, 'repo');
@@ -449,11 +450,11 @@ test('candidate shape includes provenance and distinguishes declared fallbacks',
 test('blocked explains exclusions, machine limits and source conflicts', () => {
   const pc = resolveCandidates(policy, 'quick-edit', { machine: 'pc' });
   assert.ok(pc.blocked.some(b => b.route === 'muse' && /machine limit/.test(b.why)));
-  const empty = resolveCandidates(policy, 'docs', { repo: 'srbryers/fathoms-game', machine: 'mac-studio' });
+  const empty = resolveCandidates(policy, 'docs', { repo: 'acme/game-app', machine: 'mac-studio' });
   assert.deepEqual(empty.candidates, []);
   assert.deepEqual(empty.blocked.map(b => b.route), ['muse', 'luna']);
   const override = rule('astra', ['3d-work'], { reasoning: 'medium' });
-  const conflict = resolveCandidates(policy, '3d-work', { repo: 'srbryers/flora-studio', override });
+  const conflict = resolveCandidates(policy, '3d-work', { repo: 'acme/studio-3d', override });
   assert.equal(conflict.candidates[0].source, 'file');
   assert.equal(conflict.candidates[0].reasoning, 'medium');
   assert.ok(conflict.blocked.some(b => b.route === 'astra' && /repo candidate superseded by file/.test(b.why)));
@@ -701,8 +702,8 @@ test('native Gemini identities agree with provider, pool and vendor in both dire
     invalid(validatePolicy(p), /native Gemini models require/);
   }
 });
-test('Prelude visual work uses Gemini while global visual work stays Opus and copy stays external', () => {
-  const repo = 'srbryers/prelude-social-skills-coach';
+test('coach-app visual work uses Gemini while global visual work stays Opus and copy stays external', () => {
+  const repo = 'acme/coach-app';
   assert.equal(resolveCandidates(policy, 'visual-implementation').candidates[0].route, 'opus');
   const visual = resolveCandidates(policy, 'visual-implementation', { repo });
   assert.equal(visual.candidates[0].route, 'gemini-flash'); assert.match(visual.candidates[0].note, /Astra reasons and directs/);

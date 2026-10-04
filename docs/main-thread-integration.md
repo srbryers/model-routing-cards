@@ -149,7 +149,7 @@ subscriptions are exhausted, `pick` returns `blocked` and you decide.
 Exclusions, machine limits and repo rules never lead to the automatic metered
 fallback. Tier 3 has no metered fallback.
 
-A repo or file rule that names a metered route (for example Prelude's
+A repo or file rule that names a metered route (for example
 `gemini-flash`) is different: it is a deliberate choice of a model no
 subscription offers. `pick` returns it even while subscriptions have room, and
 it still needs spend approval (`needs_approval`). The ceiling governs only the
@@ -233,7 +233,24 @@ Without it, `pi-local` is unavailable.
 
 ## Policy
 
-`policy/policy.json` holds the routes, tiers, kinds, quota thresholds and
-repo rules. A repo can add a `.model-routing.json` override at its root;
+`policy/policy.json` holds the routes, tiers, kinds and quota thresholds.
+It carries no personal repo rules. A repo can add a `.model-routing.json` override at its root;
 the repo's own `AGENTS.md` or `CLAUDE.md` still wins where it routes work
 differently. See [policy details](../policy/README.md).
+
+## Your own repo rules
+
+Keep rules for your own repos out of the shared policy. Put them in
+`~/.config/model-routing/policy.local.json` (or `$XDG_CONFIG_HOME/model-routing/`).
+`pick` merges that file into the public policy every time it runs. Copy
+`policy/examples/policy.local.example.json` and change the repo key and rules.
+
+The file takes `repos`, route `note`s, kind `description`s and external route
+`instructions`. It cannot add routes or kinds or change quota or tiers. A repo's
+own `.model-routing.json` still outranks it, and it outranks the public entry for
+the same repo.
+
+If the file is invalid, `pick` exits 2 and prints its path and the errors; it does
+not fall back to the public policy. `model-routing policy show` lists the files
+that loaded. To move rules out of an older policy file:
+`model-routing policy export-local --from old.json > ~/.config/model-routing/policy.local.json`.

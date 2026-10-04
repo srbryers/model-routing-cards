@@ -22,8 +22,12 @@ export function validateLocalConfig(config, policy) {
   return { ok: !errors.length, errors };
 }
 
+/** Directory for user-managed files: `$XDG_CONFIG_HOME/model-routing`, default `~/.config/model-routing`. */
+export const configDir = (env = process.env) =>
+  resolve(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config'), 'model-routing');
+
 export function loadLocalConfig(policy, { env = process.env, readFile = readFileSync } = {}) {
-  const file = resolve(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config'), 'model-routing', 'local.json');
+  const file = join(configDir(env), 'local.json');
   const unavailable = message => ({ routes: {}, error: `${file}: ${message}; local routes unavailable` });
   let contents;
   try { contents = readFile(file, 'utf8'); }
@@ -38,4 +42,13 @@ export function loadLocalConfig(policy, { env = process.env, readFile = readFile
   const result = validateLocalConfig(config, policy);
   if (!result.ok) return unavailable('invalid local model configuration');
   return config;
+}
+
+/** For `policy show`: where local.json is and whether it loaded. */
+export function localConfigStatus(policy, { env = process.env, readFile = readFileSync } = {}) {
+  const file = join(configDir(env), 'local.json');
+  const { error } = loadLocalConfig(policy, { env, readFile });
+  if (error) return { file, state: 'error', error };
+  try { readFile(file, 'utf8'); } catch { return { file, state: 'absent' }; }
+  return { file, state: 'loaded' };
 }
