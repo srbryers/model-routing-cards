@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { main, runPick } from './model-routing.mjs';
+import { main, runOutcomes } from './model-routing.mjs';
 import { logDecision } from '../scripts/state.mjs';
 import { buildCard } from '../scripts/card.mjs';
 import { loadPolicy } from '../scripts/policy.mjs';
@@ -267,25 +269,101 @@ test('concurrent records append intact lines using the shared state lock', async
   assert.equal(existsSync(join(h.stateDir, '.lock')), false);
 });
 
-test('field outcomes never enter card, route or pick trust inputs', async t => {
-  const h = harness(t, { repoKey: () => null, loadOverride: () => null });
-  const receipts = ['a', 'b'].flatMap(model => Array.from({ length: 3 }, () => ({ model,
-    state: 'completed', gates_passed: true, metrics: { score: model === 'a' ? 1 : 0.5 }, cost_usd: 0.001 })));
-  const options = { taskId: 'test', today: new Date(h.now) };
-  const before = buildCard(receipts, options);
-  assert.equal(await runPick(['--kind', 'quick-edit', '--no-quota', '--json'], h), 0);
-  const pickBefore = last(h);
-  // ⚠ Invalid JSON makes an accidental field-evidence read fail visibly.
-  writeFileSync(join(h.stateDir, 'outcomes.jsonl'), 'THIS IS NOT JSON');
-  assert.deepEqual(buildCard(receipts, options), before);
-  assert.equal(await runPick(['--kind', 'quick-edit', '--no-quota', '--json'], h), 0);
-  const pickAfter = last(h);
-  delete pickBefore.id; delete pickAfter.id;
-  assert.deepEqual(pickAfter, pickBefore);
-  for (const file of ['card', 'route', 'pick', 'state']) {
-    assert.doesNotMatch(readFileSync(new URL(`../scripts/${file}.mjs`, import.meta.url), 'utf8'), /outcomes|recordOutcome|fieldEvidence/);
+test('valid adverse field outcomes cannot change pick or receipt cards, and are never opened', async t => {
+  const h = harness(t);
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const repo = join(h.stateDir, 'repo');
+  const runs = join(repo, 'runs');
+  mkdirSync(join(runs, 'quick-edit'), { recursive: true });
+  const task = join(repo, 'task.mjs');
+  writeFileSync(task, "export const task = { id: 'quick-edit', models: ['a', 'b'], prompt: () => '', score: () => ({}) };\n");
+  const receipts = ['meta/muse-spark-1.3', 'openai/gpt-6-luna'].flatMap((model, m) =>
+    Array.from({ length: 3 }, () => ({ model, state: 'completed', gates_passed: true,
+      metrics: { score: m === 0 ? 1 : 0.5 }, cost_usd: 0.001 })));
+  receipts.forEach((r, i) => writeFileSync(join(runs, 'quick-edit', `${i}.json`), JSON.stringify(r)));
+  const outcomePath = join(h.stateDir, 'outcomes.jsonl');
+  const openedPath = join(h.stateDir, 'opened.txt');
+  const preload = join(h.stateDir, 'tripwire.cjs');
+  // ⚠ A thrown read can be swallowed. Record every attempt outside the process as well.
+  writeFileSync(preload, `
+    const fs = require('node:fs');
+    const { resolve } = require('node:path');
+    const { fileURLToPath } = require('node:url');
+    const guard = path => {
+      if (path instanceof URL) path = fileURLToPath(path);
+      if (Buffer.isBuffer(path)) path = path.toString();
+      if (typeof path === 'string' && resolve(path) === process.env.TEST_OUTCOME_PATH) {
+        fs.appendFileSync(process.env.TEST_OUTCOME_OPEN_LOG, 'opened\\n');
+        throw new Error('Outcome read tripwire');
+      }
+    };
+    for (const key of ['readFileSync', 'openSync', 'readFile', 'open', 'createReadStream']) {
+      const original = fs[key];
+      fs[key] = function(path, ...args) { guard(path); return original.call(this, path, ...args); };
+    }
+    for (const key of ['readFile', 'open']) {
+      const original = fs.promises[key];
+      fs.promises[key] = async function(path, ...args) { guard(path); return original.call(this, path, ...args); };
+    }
+    require('node:module').syncBuiltinESMExports();
+  `);
+  const env = { ...process.env, MODEL_ROUTING_STATE_DIR: h.stateDir,
+    MODEL_ROUTING_CARDS_DIR: runs, XDG_DATA_HOME: join(h.stateDir, 'data'),
+    TEST_OUTCOME_PATH: outcomePath, TEST_OUTCOME_OPEN_LOG: openedPath };
+  const invoke = args => spawnSync(process.execPath, ['--require', preload, ...args], { env, encoding: 'utf8' });
+  const probe = invoke(['-e', "require('node:fs').readFileSync(process.env.TEST_OUTCOME_PATH)"]);
+  assert.notEqual(probe.status, 0);
+  assert.equal(readFileSync(openedPath, 'utf8').trim(), 'opened');
+  rmSync(openedPath);
+  const cardArgs = [join(root, 'scripts', 'route.mjs'), 'card', task];
+  const pickArgs = [join(root, 'bin', 'model-routing.mjs'), 'pick', '--kind', 'quick-edit',
+    '--repo', repo, '--cards-dir', runs, '--no-quota', '--json'];
+  const beforeCard = invoke(cardArgs);
+  assert.equal(beforeCard.status, 0, beforeCard.stderr);
+  const cardPath = join(runs, 'quick-edit.card.json');
+  const cardBytes = readFileSync(cardPath, 'utf8');
+  const beforePick = invoke(pickArgs);
+  assert.equal(beforePick.status, 0, beforePick.stderr);
+  const selected = JSON.parse(beforePick.stdout);
+  assert.equal(selected.route, 'muse');
+  const outcomes = [];
+  for (const route of [selected.route, 'luna']) {
+    for (let i = 0; i < 10; i++) {
+      const d = decision(h, { id: `${route}_${i}`, route });
+      outcomes.push({ decisionId: d.id, at: d.at, kind: d.kind, route, basis: d.basis,
+        repo: d.repo, result: route === selected.route ? 'fail' : 'pass', gates: {}, failuresBefore: 0, notes: '' });
+    }
   }
-  assert.doesNotMatch(runPick.toString(), /outcomes|recordOutcome|fieldEvidence/);
+  writeFileSync(outcomePath, outcomes.map(o => JSON.stringify(o)).join('\n') + '\n');
+  assert.equal(await main(['outcomes', '--json'], h), 0);
+  assert.equal(last(h).readiness[0].ready, true);
+  assert.equal(last(h).rows.find(r => r.route === selected.route).fail, 10);
+  const pureBefore = buildCard(receipts, { taskId: 'quick-edit', today: new Date(h.now) });
+  const afterPick = invoke(pickArgs);
+  assert.equal(afterPick.status, 0, afterPick.stderr);
+  const after = JSON.parse(afterPick.stdout);
+  for (const d of [selected, after]) { delete d.id; delete d.at; }
+  assert.deepEqual(after, selected);
+  const afterCard = invoke(cardArgs);
+  assert.equal(afterCard.status, 0, afterCard.stderr);
+  assert.equal(afterCard.stdout, beforeCard.stdout);
+  assert.equal(readFileSync(cardPath, 'utf8'), cardBytes);
+  assert.deepEqual(buildCard(receipts, { taskId: 'quick-edit', today: new Date(h.now) }), pureBefore);
+  assert.equal(existsSync(openedPath), false, 'pick/card attempted to open the outcomes file');
+});
+
+test('only record and outcomes production code names the outcomes log', () => {
+  // ⚠ Check every production module, including transitive and future helper imports.
+  for (const directory of ['bin', 'scripts']) {
+    const root = new URL(`../${directory}/`, import.meta.url);
+    for (const name of readdirSync(root, { recursive: true })) {
+      if (!name.endsWith('.mjs') || name.endsWith('.test.mjs')) continue;
+      let source = readFileSync(new URL(name, root), 'utf8');
+      if (directory === 'scripts' && name === 'outcomes.mjs') continue;
+      if (directory === 'bin' && name === 'model-routing.mjs') source = source.replace(runOutcomes.toString(), '');
+      assert.doesNotMatch(source, /outcomes\.jsonl/, `${directory}/${name} opens field evidence outside record/outcomes`);
+    }
+  }
 });
 
 test('shared log helpers skip corrupt lines and preserve appends after a truncated tail', async t => {
