@@ -9,6 +9,7 @@
     ".": "./scripts/card.mjs",
     "./card": "./scripts/card.mjs",
     "./policy": "./scripts/policy.mjs",
+    "./policy-local": "./scripts/policy-local.mjs",
     "./jev": "./scripts/jev.mjs",
     "./clef": "./scripts/clef.mjs",
     "./providers": "./scripts/providers.mjs",

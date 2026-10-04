@@ -4,10 +4,11 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readState, logDecision } from './state.mjs';
-import { loadPolicy, validatePolicy } from './policy.mjs';
+import { validatePolicy } from './policy.mjs';
+import { loadPolicyWithTestRepos } from './fixtures/with-test-repos.mjs';
 import { pick, quotaPace } from './pick.mjs';
 import { normalizeQuota, readQuota, buildSpawn, buildApproval } from './adapters/bb.mjs';
-const policy = loadPolicy();
+const policy = loadPolicyWithTestRepos();
 const now = '2026-10-04T15:35:00Z';
 const sample = JSON.parse(readFileSync(new URL('./fixtures/quota.json', import.meta.url), 'utf8'));
 const quota = normalizeQuota(sample);
@@ -68,25 +69,25 @@ test('blocked repo preference is explained and falls back', () => {
   assert.equal(d.route, 'astra'); assert.match(d.why.join(' '), /repo override blocked/);
 });
 test('repo rules, machine restrictions, external instructions and notes survive', () => {
-  assert.equal(choose({ kind: '3d-work' }, { repo: 'srbryers/flora-studio' }).route, 'astra');
-  const game = choose({ kind: 'quick-edit' }, { repo: 'srbryers/fathoms-game' });
+  assert.equal(choose({ kind: '3d-work' }, { repo: 'acme/flora-studio' }).route, 'astra');
+  const game = choose({ kind: 'quick-edit' }, { repo: 'acme/fathoms-game' });
   assert.equal(game.machine, 'pc'); assert.equal(game.route, 'luna');
   assert.ok(game.alternatives.some(a => a.route === 'muse'));
-  assert.equal(choose({ kind: 'data-contract' }, { repo: 'srbryers/wedding' }).route, 'astra');
-  const external = choose({ kind: 'user-facing-copy' }, { repo: 'srbryers/prelude-social-skills-coach' });
+  assert.equal(choose({ kind: 'data-contract' }, { repo: 'acme/wedding' }).route, 'astra');
+  const external = choose({ kind: 'user-facing-copy' }, { repo: 'acme/prelude-social-skills-coach' });
   assert.equal(external.status, 'external'); assert.equal(external.requiresSpendApproval, true);
   assert.ok(external.instruction); assert.equal(buildSpawn(external, {}), undefined);
   assert.match(external.notes.join(' '), /author never approves/);
-  for (const kind of Object.keys(policy.kinds)) assert.notEqual(choose({ kind }, { repo: 'srbryers/ui-kit' }).route, 'muse');
+  for (const kind of Object.keys(policy.kinds)) assert.notEqual(choose({ kind }, { repo: 'acme/ui-kit' }).route, 'muse');
 });
 test('two failures moves up one tier and skips an escalated repo route', () => {
   const d = choose({ kind: 'quick-edit', failures: 2 }); assert.ok(['sonnet', 'astra'].includes(d.route));
-  const repo = choose({ kind: 'quick-edit', failures: 2 }, { repo: 'srbryers/prelude-social-skills-coach' });
+  const repo = choose({ kind: 'quick-edit', failures: 2 }, { repo: 'acme/prelude-social-skills-coach' });
   assert.notEqual(repo.route, 'terra'); assert.match(repo.why.join(' '), /escalated repo route skipped/);
 });
 test('review excludes author vendor, including a repo override', () => {
   for (const kind of policy.review.kinds) {
-    const d = choose({ kind, author: 'astra' }, { repo: 'srbryers/flora-studio' });
+    const d = choose({ kind, author: 'astra' }, { repo: 'acme/flora-studio' });
     assert.ok(!['astra', 'luna', 'sol'].includes(d.route));
   }
   const d = choose({ kind: 'high-risk-review', author: 'anthropic' });
@@ -142,12 +143,12 @@ test('policy validates classifier, margin, card path and unique model aliases', 
 });
 
 test('tier 3 escalated repo routes are skipped without inventing a fourth tier', () => {
-  const d = choose({ kind: 'data-contract', failures: 2 }, { repo: 'srbryers/wedding' });
+  const d = choose({ kind: 'data-contract', failures: 2 }, { repo: 'acme/wedding' });
   assert.equal(d.route, 'opus'); assert.match(d.why.join(' '), /escalated repo route skipped/);
 });
 test('central plus file exclusions can block a kind and retain all explanations', () => {
   const file = { policyVersion: 1, rules: [{ kinds: ['*'], excludeRoutes: ['luna'], source: 'fixture', why: 'test constraint' }] };
-  const d = choose({ kind: 'quick-edit' }, { repo: 'srbryers/ui-kit', override: file });
+  const d = choose({ kind: 'quick-edit' }, { repo: 'acme/ui-kit', override: file });
   assert.equal(d.status, 'blocked');
   assert.ok(d.alternatives.some(a => a.route === 'muse' && /excluded/.test(a.rejected)));
   assert.ok(d.alternatives.some(a => a.route === 'luna' && /excluded/.test(a.rejected)));
@@ -159,7 +160,7 @@ test('expired quota is unknown and does not impose an old hard stop', () => {
 });
 test('card cannot bypass an external instruction; malformed costs and future cards are ignored', () => {
   const p = structuredClone(policy); p.cards.byKind['user-facing-copy'] = 'quick-edit.card.json';
-  const d = choose({ kind: 'user-facing-copy' }, { policy: p, repo: 'srbryers/prelude-social-skills-coach',
+  const d = choose({ kind: 'user-facing-copy' }, { policy: p, repo: 'acme/prelude-social-skills-coach',
     cards: { 'user-facing-copy': card('CALIBRATED', 'meta/muse-spark-1.3') } });
   assert.equal(d.status, 'external');
   const c = card('NO_CLEAR_WINNER'); c.models = {};
@@ -200,10 +201,10 @@ test('require-quota blocks unknown candidate pools and accepts complete quota', 
   assert.equal(choose({ requireQuota: true }, { now: '2026-11-01', quota }).status, 'blocked');
   // Muse has no readable quota, while a free local route and an external instruction need no worker quota.
   assert.equal(choose({ kind: 'quick-edit', requireQuota: true }).route, 'muse');
-  assert.equal(choose({ kind: 'user-facing-copy', requireQuota: true }, { repo: 'srbryers/prelude-social-skills-coach', quota: null }).status, 'external');
+  assert.equal(choose({ kind: 'user-facing-copy', requireQuota: true }, { repo: 'acme/prelude-social-skills-coach', quota: null }).status, 'external');
 });
 test('repo and file rules outrank calibrated cards', () => {
-  for (const deps of [{ repo: 'srbryers/prelude-social-skills-coach' }, { override: override('gpt-5.5') }]) {
+  for (const deps of [{ repo: 'acme/prelude-social-skills-coach' }, { override: override('gpt-5.5') }]) {
     const d = choose({}, { ...deps, cards: { 'multi-step-coding': card() } });
     assert.equal(d.route, 'gpt-5.5'); assert.equal(d.basis, 'policy');
     assert.ok(d.why.includes('repo rule outranks card'));
@@ -239,7 +240,7 @@ test('a lone Claude threshold blocks a tier-2 repo or file rule before selection
   }
 });
 test('a lone Codex threshold blocks the Flora Astra rule and chooses Sonnet', () => {
-  const d = choose({ kind: '3d-work' }, { repo: 'srbryers/flora-studio', quota: changed(59, 90) });
+  const d = choose({ kind: '3d-work' }, { repo: 'acme/flora-studio', quota: changed(59, 90) });
   assert.equal(d.route, 'sonnet'); assert.equal(d.basis, 'policy');
   assert.ok(d.alternatives.some(a => a.route === 'astra'
     && a.rejected === 'repo rule on astra blocked by quota: Codex weekly 90% > 85%'));
@@ -281,7 +282,7 @@ test('Pi prerequisites are explicit and null reasoning is not a missing argument
   assert.ok(buildSpawn({ ...d, reasoning: undefined }, {}).missing.includes('reasoning-level'));
 });
 test('repo review gates remain in notes rather than beforeSpawn', () => {
-  const d = choose({}, { repo: 'srbryers/prelude-social-skills-coach' });
+  const d = choose({}, { repo: 'acme/prelude-social-skills-coach' });
   assert.match(d.notes.join(' '), /Independent review of every implementation/);
   assert.deepEqual(d.beforeSpawn, []);
 });
@@ -324,7 +325,7 @@ test('exclusions, machines and review independence cannot unlock metered spendin
   const limits = { muse: '2026-10-05', luna: '2026-10-05' };
   for (const [input, deps] of [
     [{ kind: 'quick-edit', machine: 'pc' }, {}],
-    [{ kind: 'quick-edit' }, { repo: 'srbryers/ui-kit' }],
+    [{ kind: 'quick-edit' }, { repo: 'acme/ui-kit' }],
     [{ kind: 'first-pass-review', author: 'openai' }, {}],
     [{ kind: 'quick-edit', failures: 2 }, { override: { policyVersion: 1, rules: [{ kinds: ['quick-edit'], route: 'muse', source: 'fixture', why: 'preferred' }] }, limits: { sonnet: '2026-10-05', astra: '2026-10-05', sol: '2026-10-05' } }],
   ]) assert.equal(choose(input, { limits, ...deps }).status, 'blocked');
@@ -342,7 +343,7 @@ test('explicit metered repo/file routes require approval; disabled OpenRouter ro
     assert.notEqual(d.route, route);
     assert.ok(d.alternatives.some(a => a.route === route && a.rejected === policy.routes[route].disabled));
   }
-  const external = choose({ kind: 'user-facing-copy', approvedRoutes: ['gemini-copy'] }, { repo: 'srbryers/prelude-social-skills-coach' });
+  const external = choose({ kind: 'user-facing-copy', approvedRoutes: ['gemini-copy'] }, { repo: 'acme/prelude-social-skills-coach' });
   assert.equal(external.status, 'external'); assert.equal(external.requiresSpendApproval, true);
 });
 test('a metered OpenAI model cannot review OpenAI-authored work', () => {
@@ -450,7 +451,7 @@ test('Sol: on the PC it rotates and alternates the same as on the Mac Studio', t
   assert.deepEqual(routes(sequence(t, 4, { machine: 'pc' })), ['sonnet', 'astra', 'sol', 'sonnet']);
   assert.deepEqual(routes(sequence(t, 4, { machine: 'pc' }, { quota: codexWins() })), ['astra', 'sol', 'astra', 'sol']);
   // A repo that only runs on the PC gets the same result without a --machine flag.
-  assert.ok(routes(sequence(t, 4, { kind: 'multi-step-coding' }, { repo: 'srbryers/fathoms-game' })).includes('sol'));
+  assert.ok(routes(sequence(t, 4, { kind: 'multi-step-coding' }, { repo: 'acme/fathoms-game' })).includes('sol'));
 });
 test('Sol: every tier-2 kind can return Sol on the PC', () => {
   const kinds = Object.entries(policy.kinds).filter(([, k]) => k.tier === 2).map(([id]) => id);
@@ -490,11 +491,11 @@ test('pc metered fallback with every subscription route on cooldown is blocked, 
   assert.equal(choose({ kind: 'quick-edit', machine: 'mac-studio' }, { limits }).route, 'fw-deepseek-v4p1-flash');
 });
 test('Sol: a repo rule naming Astra stays on Astra', t => {
-  for (const d of sequence(t, 3, { kind: '3d-work' }, { repo: 'srbryers/flora-studio' })) {
+  for (const d of sequence(t, 3, { kind: '3d-work' }, { repo: 'acme/flora-studio' })) {
     assert.equal(d.route, 'astra'); assert.equal(d.basis, 'policy');
     assert.ok(d.alternatives.some(a => a.route === 'sol'));
   }
-  for (const d of sequence(t, 3, { kind: 'data-contract' }, { repo: 'srbryers/wedding' })) assert.equal(d.route, 'astra');
+  for (const d of sequence(t, 3, { kind: 'data-contract' }, { repo: 'acme/wedding' })) assert.equal(d.route, 'astra');
 });
 test('Sol: review keeps a different vendor from the author, in both directions', () => {
   for (const author of ['astra', 'sol', 'openai']) {

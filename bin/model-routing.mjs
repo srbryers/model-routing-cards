@@ -12,9 +12,10 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import { loadPolicy, loadOverride, repoKey, machineIds } from '../scripts/policy.mjs';
+import { loadPolicy, loadOverride, repoKey, machineIds, parseUniqueJson } from '../scripts/policy.mjs';
 import { pick } from '../scripts/pick.mjs';
-import { loadLocalConfig } from '../scripts/local-config.mjs';
+import { loadLocalConfig, localConfigStatus } from '../scripts/local-config.mjs';
+import { loadEffectivePolicy, exportLocal } from '../scripts/policy-local.mjs';
 import { findCard } from '../scripts/cards.mjs';
 import { classify } from '../scripts/classify.mjs';
 import { readQuota, buildSpawn, buildApproval } from '../scripts/adapters/bb.mjs';
@@ -34,6 +35,9 @@ const USAGE = `usage: model-routing <command> [args]
   limit <route> [--hours N] mark a route temporarily unavailable
   record <decision-id>     record verified work (Jev is dry without --execute)
   outcomes [--kind K] [--json] show field outcomes and bake-off readiness
+  policy show [--json]     print the merged policy and which local files were loaded
+  policy export-local --from OLD.json
+                           print a policy.local.json from an older policy file (no writes)
 
 pick: --brief-file F | --brief TEXT, --kind K, --repo DIR, --machine ID,
       --failures N, --author ROUTE_OR_VENDOR, --main-thread, --project ID,
@@ -54,6 +58,7 @@ export const COMMANDS = {
   limit: runLimit,
   record: runRecord,
   outcomes: runOutcomes,
+  policy: runPolicy,
   run: (args) => execRoute(['run', ...args]),
   card: (args) => execRoute(['card', ...args]),
 };
@@ -62,6 +67,9 @@ function execRoute(args) {
   const r = spawnSync(process.execPath, [ROUTE, ...args], { stdio: 'inherit' });
   process.exit(r.status ?? 1);
 }
+
+/** The policy every command routes with: public policy plus the user's local overlay. */
+const activePolicy = deps => deps.loadPolicy ? deps.loadPolicy() : loadEffectivePolicy({ env: deps.env ?? process.env }).policy;
 
 const pickOptions = {
   'brief-file': { type: 'string' }, brief: { type: 'string' }, kind: { type: 'string' },
@@ -101,7 +109,7 @@ export async function runPick(args, deps = {}) {
     }
     throw error;
   }
-  const policy = (deps.loadPolicy ?? loadPolicy)();
+  const policy = activePolicy(deps);
   if (flags.brief !== undefined && flags['brief-file'] !== undefined) throw new TypeError('Use --brief or --brief-file, not both');
   for (const [flag, value] of Object.entries(flags)) if (typeof value === 'string' && !value.trim()) throw new TypeError(`--${flag} needs a nonempty value`);
   if (flags.kind !== undefined && !Object.hasOwn(policy.kinds, flags.kind)) throw new TypeError(`Unknown kind: ${flags.kind}`);
@@ -151,9 +159,52 @@ export async function runPick(args, deps = {}) {
   return { ok: 0, external: 0, needs_approval: 5, needs_kind: 3, blocked: 4 }[decision.status];
 }
 
+function describeSources({ sources, effects, local }) {
+  const names = ids => ids.length ? ids.join(', ') : 'none';
+  const state = { loaded: 'loaded', absent: 'not found', error: 'ERROR' };
+  return `Policy: ${sources.policy}\n`
+    + `Local overlay: ${sources.overlay.file} (${sources.overlay.loaded ? 'loaded' : 'not found'})\n`
+    + `Local models: ${local.file} (${state[local.state]}${local.error ? `: ${local.error}` : ''})\n`
+    + `Local overlay changes:\n`
+    + `  repo rules: ${names(effects.repos.map(r => r.replacesPublic ? `${r.repo} (replaces public entry)` : r.repo))}\n`
+    + `  route notes: ${names(effects.routeNotes)}\n`
+    + `  kind descriptions: ${names(effects.kindDescriptions)}\n`
+    + `  instruction overrides: ${names(effects.instructions)}\n`
+    + 'Use --json for the full merged policy.\n';
+}
+
+export async function runPolicy(args, deps = {}) {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true,
+    options: { json: { type: 'boolean' }, from: { type: 'string' } } });
+  const [sub, ...extra] = positionals;
+  const stdout = deps.stdout ?? (text => process.stdout.write(text));
+  if (extra.length || !['show', 'export-local'].includes(sub)) throw new TypeError('usage: policy show [--json] | policy export-local --from OLD.json');
+  if (sub === 'show') {
+    if (values.from !== undefined) throw new TypeError('policy show does not take --from');
+    const env = deps.env ?? process.env;
+    const result = loadEffectivePolicy({ env, readFile: deps.readFile });
+    const local = localConfigStatus(result.policy, { env, readFile: deps.readFile });
+    stdout(values.json ? JSON.stringify({ sources: { ...result.sources, localModels: local }, effects: result.effects, policy: result.policy }, null, 2) + '\n'
+      : describeSources({ ...result, local }));
+    return 0;
+  }
+  if (values.json) throw new TypeError('policy export-local always prints JSON; omit --json');
+  if (!values.from?.trim()) throw new TypeError('policy export-local needs --from OLD_POLICY.json');
+  let old;
+  const file = resolve(values.from);
+  try { old = parseUniqueJson((deps.readFile ?? readFileSync)(file, 'utf8')); }
+  catch (error) { throw new TypeError(`${file}: could not be read as a policy file (${error.code ?? error.message})`); }
+  // ⚠ Export against the public policy only, so a local overlay already in place cannot leak into its own migration.
+  const overlay = exportLocal(old, loadPolicy());
+  const counts = Object.entries(overlay).filter(([key]) => key !== 'policyVersion').map(([key, value]) => `${Object.keys(value).length} ${key}`);
+  (deps.stderr ?? (text => process.stderr.write(text)))(`exported ${counts.join(', ') || 'nothing'}\n`);
+  stdout(JSON.stringify(overlay, null, 2) + '\n');
+  return 0;
+}
+
 export async function runLimit(args, deps = {}) {
   const { values, positionals } = parseArgs({ args, options: { hours: { type: 'string' }, json: { type: 'boolean' } }, allowPositionals: true });
-  const policy = (deps.loadPolicy ?? loadPolicy)();
+  const policy = activePolicy(deps);
   const [route] = positionals;
   if (positionals.length !== 1 || !Object.hasOwn(policy.routes, route) || policy.routes[route].type === 'external') throw new TypeError('limit needs one worker route');
   const hours = number(values.hours, '--hours', policy.quota.limitErrors.find(rule => rule.route === route)?.cooldownHours ?? 5);
@@ -201,7 +252,7 @@ export async function runRecord(args, deps = {}) {
 export async function runOutcomes(args, deps = {}) {
   const { values } = parseArgs({ args, allowPositionals: false,
     options: { kind: { type: 'string' }, json: { type: 'boolean' } } });
-  const policy = (deps.loadPolicy ?? loadPolicy)();
+  const policy = activePolicy(deps);
   if (values.kind !== undefined && !Object.hasOwn(policy.kinds, values.kind)) throw new TypeError(`Unknown kind: ${values.kind}`);
   const { summarizeOutcomes, formatOutcomes } = await import('../scripts/outcomes.mjs');
   const dir = deps.stateDir ?? stateDirectory();

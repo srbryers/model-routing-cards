@@ -546,7 +546,7 @@ function viaMuse({ model, prompt, reasoning, spawn = spawnSync, readSettings }) 
  *   --setting-sources ""       no user, project or local settings, so none of
  *                              the user's hooks or permissions apply
  *
- * ⚠ KNOWN ASYMMETRY: `claude -p` STILL LOADS THE USER'S `~/.claude/CLAUDE.md`.
+ * ⚠ KNOWN ASYMMETRY: `claude -p` STILL LOADS THE USER'S GLOBAL `CLAUDE.md` (in the Claude config directory).
  * The only flag that skips it is `--bare`, and `--bare` never reads the
  * subscription login (API-key billing only), so it cannot be used here. Muse
  * drops personal rules with `--no-foreign-personal-context`; Claude cannot. A
