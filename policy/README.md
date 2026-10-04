@@ -11,7 +11,7 @@ its open questions. Benchmark evidence does not change policy by itself.
 - **Candidate:** an eligible route offered for selection.
 - **Fallback:** the next route to try when the first choice is unavailable.
 - **Basis:** the reason a route was chosen: policy, trial, card or card-cheaper.
-- **Trial:** a choice between two tied routes that alternates each time, so both gather evidence.
+- **Trial:** a choice between tied routes that rotates each time, so each gathers evidence.
 - **External route:** work handed to a tool outside the worker pool, with an instruction instead of spawn arguments.
 - **Override:** a repo's own rule that replaces the shared policy for some kinds of work.
 
@@ -23,7 +23,7 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `kinds` | Fixed classifier labels, descriptions, tier, reasoning and explicit route order. `local` and `image` are outside paid tiers. `null` reasoning means no effort setting. |
 | `escalation` | `failuresScope: "task"` counts total failures across tiers. Every two failures advance one step: 1 → 2 at high, then 2 → 3 at xhigh. Stop at tier 3; local and image have no escalation step. |
 | `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, tier preferences and pool reservations. A lone preference binds when its target pool is available; reservations always bind. |
-| `tieBreak` | Tier 2: repo rule, machine eligibility, weekly pace, then alternate Sonnet/Astra and label the choice `trial`. PC allows either. |
+| `tieBreak` | Tier 2 is Sonnet, Astra or Sol: repo rule, machine eligibility, weekly pace picks the pool, then the pool picks the route (Sonnet; or Astra and Sol alternating; or all three when the pools tie). Alternating choices are labelled `trial`. `routes` lists the rotation order and must all be tier-2 candidates. The PC drops Sol and keeps Sonnet/Astra. |
 | `review` | Review kinds require a different vendor from the author. |
 | `cards` | `byKind` maps kinds to card files. Fresh `CALIBRATED` winners may select an allowed candidate; measured cheaper results can break a pace tie. The 30-day limit matches `TRUST.STALE_DAYS`. |
 | `classifier` | `minProbability: 0.6` and `minMargin: 0.15` decide when Jev must defer. Both are validated from 0 to 1. |
@@ -39,7 +39,9 @@ its open questions. Benchmark evidence does not change policy by itself.
    declare these explicitly. External routes cannot appear in paid tiers.
 2. Keep route references valid. Muse is Mac-only, contributor models are forbidden,
    Claude model/provider/pool/vendor must agree, as must Codex and Muse provider/pool
-   pairs. Sonnet accepts xhigh but never max.
+   pairs. Sonnet accepts xhigh but never max. Routes in `tieBreak.routes` must be tier-2 candidates.
+   Sol (`gpt-6.1-sol`) runs on the Mac Studio only: the PC's Codex CLI is 0.153 and rejects it, and the
+   route needs Codex CLI 0.160 or later. Its `supportedReasoning` is assumed from Astra until BB lists the model.
 3. Run `npm test`. The loader rejects unsupported versions, unknown fields and
    invalid references and duplicate JSON keys. A format change needs a new
    supported `policyVersion`.
@@ -165,9 +167,9 @@ classification; dispatch stays with the caller.
 | Budget | Call `assertJevBudget` before credentials and request. Default cap is $0.01. The serialized UTF-8 request byte count bounds input tokens for the reserve. Keep the 80,000-byte rejection. Key/configuration errors exit 2 before the network request. Log measured input cost; use null when response usage is unavailable. Oversized requests are rejected, never truncated. |
 | Machine | Explicit flag, then a sole allowed repo machine, then `machines.default` if allowed, otherwise the first allowed machine. Conflicts block. `default` is validated and never treated as a machine ID. |
 | Cooldown | Skip limited routes, then use the surviving policy candidates. `limit` defaults to the route's policy duration, otherwise five hours. |
-| Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. |
+| Quota rules | When exactly one threshold triggers, Claude session >70% excludes Claude for tier 2, or Codex weekly >85% excludes Codex for tier 2. Remove that pool before repo/card selection and report blocked repo/file rules. Stops act on pools, so Sol follows Astra: Claude session >70% leaves Astra and Sol to alternate; Codex weekly >85% removes both and leaves Sonnet. If the target pool has no allowed candidate, retain the other pool with a fallback note. If both trigger, discard both preferences and choose by pace, with a note. Above 80% Claude session usage still reserves Claude for tier 3 or main threads; the fallback cannot bypass this reservation. |
 | Pace | `elapsedPct = 100 * (now - (resetsAt - length)) / length`; headroom is elapsed minus used. Weekly length is seven days; session length is five hours. Require a `Z` or explicit UTC offset, clamp elapsed to 0–100, compare full precision and show both headrooms. Ignore windows with a `model` field; duplicate kinds use the highest used percentage. |
-| Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. A difference at or below the margin alternates Sonnet/Astra, starting with Sonnet. Missing weekly data also causes a labelled trial. PC uses the same rule. |
+| Tie | `tieBreak.marginPoints: 5`, validated from 0 to 100. Pace compares the Claude and Codex weekly windows. If the larger headroom beats the smaller by more than the margin, that pool wins. Claude wins: Sonnet, `basis: policy`. Codex wins: Astra and Sol have no evidence between them, so they alternate, `basis: trial`. A difference at or below the margin rotates over every allowed tier-2 route (Sonnet → Astra → Sol → Sonnet), starting with Sonnet. Missing weekly data also rotates. When only one pool is allowed (for example after a quota stop), its routes alternate. On the PC, Sol is dropped by machine limits, so the rule runs over Sonnet and Astra. |
 | Missing quota | Failed reads or missing/invalid/expired windows are unknown, never zero usage. Notes say “quota unknown: hard stops not applied”; valid remaining windows still impose their stops. `--require-quota` checks only pools marked `readable: true` (Claude and Codex). Check the selected pool, plus both pools when the tier-2 choice uses pace or a quota preference. Unused fallback pools do not count. Unreadable pools such as Muse and local never block for quota; `why` says they rely on cooldowns. External instructions need no worker quota. |
 | Review | Exclude the author's entire vendor. If every candidate is excluded, try the nearest different-vendor route with the same machine, exclusion, cooldown and quota checks. |
 | External | Return the instruction and spend-approval flag, with no spawn arguments. Worker cards cannot bypass an external instruction. |
@@ -186,7 +188,7 @@ and multi-step-coding → implementation, and all review kinds → review.
 Each worker route can declare unique `cardModels` aliases. These match the exact
 model IDs in task cards, including `meta/muse-spark-1.3`,
 `anthropic/claude-sonnet-5.5`, `anthropic/claude-opus-5.5` and the existing task slug
-`openai/gpt-6-luna` for the Luna route. Aliases are explicit policy mappings;
+`openai/gpt-6-luna` for the Luna route. Sol uses `openai/gpt-6.1-sol`, the same slug style. Aliases are explicit policy mappings;
 changing a route model needs review of its aliases and existing measurements.
 The metered DeepSeek route has no card alias; existing DeepSeek measurements do not establish it as a winner.
 
@@ -389,7 +391,9 @@ on its own line even when a killed writer left an incomplete final line.
 ## State
 
 The decision log is also the alternation record: only logged `ok` decisions with
-`basis: trial` advance that kind. A directory lock serializes pick/log and limit
+`basis: trial` advance that kind. The last trial is kept per kind (rotation over
+three routes) and per kind and pool (Astra/Sol), so a Sonnet trial in between
+does not skip a codex route's turn. A directory lock serializes pick/log and limit
 updates; no lock is held during classification. Limits are atomically replaced in
 `limits.json`. The `.lock/owner.json` file records PID, timestamp and ownership
 token. A dead PID (`ESRCH`) or a lock older than 30 seconds permits reclamation.
@@ -406,6 +410,8 @@ length (UTF-16 code units). Request/response bodies and credentials are never
 logged. Runnable and approval-preview argv are omitted from the disk log to avoid retaining titles,
 project/section IDs and prompt-file paths; stdout and `logDecision()`’s return
 value keep it. Existing state exports and argument lists are unchanged.
-`readState()` adds `unreadableLogLines` beside `alternation` and `limits`.
+`readState()` adds `unreadableLogLines` and `poolAlternation` beside `alternation`
+and `limits`. Pass the policy as the second argument so routes map to pools; without
+it `poolAlternation` is empty.
 Policy and card explanations remain in `why`; repo notes remain in
 `notes`; resolver exclusions remain in `alternatives`.

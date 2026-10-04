@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { main, runPick, runLimit } from './model-routing.mjs';
 import { classify } from '../scripts/classify.mjs';
 import { readState, stateDirectory } from '../scripts/state.mjs';
+import { loadPolicy } from '../scripts/policy.mjs';
 
 function harness(t, extra = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), 'pick-cli-'));
@@ -51,6 +52,16 @@ test('two consecutive logged trials alternate, including concurrent commands', a
   assert.deepEqual(logged.map(d => d.basis), ['trial', 'trial']);
   assert.deepEqual(logged.map(d => d.route), ['sonnet', 'astra']);
   assert.equal(readState(h.stateDir).alternation['multi-step-coding'], 'astra');
+});
+test('three consecutive logged trials rotate Sonnet, Astra and Sol, then Sonnet again', async t => {
+  const h = harness(t);
+  const routes = [];
+  for (let i = 0; i < 4; i++) {
+    assert.equal(await runPick(['--kind', 'multi-step-coding', '--no-quota', '--json'], h), 0);
+    routes.push([last(h).route, last(h).basis]);
+  }
+  assert.deepEqual(routes, [['sonnet', 'trial'], ['astra', 'trial'], ['sol', 'trial'], ['sonnet', 'trial']]);
+  assert.deepEqual(readState(h.stateDir, loadPolicy()).poolAlternation['multi-step-coding'], { claude: 'sonnet', codex: 'sol' });
 });
 test('CLI limit persists cooldown and blocked decisions are logged with code 4', async t => {
   const h = harness(t);

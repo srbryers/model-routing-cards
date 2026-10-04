@@ -288,7 +288,10 @@ export function validatePolicy(policy) {
     check(tie.tier === 2, 'tieBreak.tier must be 2');
     check(JSON.stringify(tie.order) === JSON.stringify(['repo-override', 'machine', 'weekly-headroom', 'alternate']), 'tieBreak.order must be repo-override, machine, weekly-headroom, alternate');
     routeList(tie.pcCandidates, 'tieBreak.pcCandidates', 1);
-    routeList(tie.routes, 'tieBreak.routes', 2);
+    const tieRoutes = routeList(tie.routes, 'tieBreak.routes', 2);
+    // ⚠ Pick alternates over these routes; one outside tier 2 would be chosen for tier-2 work.
+    const tierTwo = Array.isArray(tiers[2]?.candidates) ? tiers[2].candidates : [];
+    check(tieRoutes.every(id => tierTwo.includes(id)), 'tieBreak.routes must all be tier 2 candidates');
     check(tie.tieBreak === 'pace', 'tieBreak.tieBreak must be pace');
     check(tie.window === 'weekly', 'tieBreak.window must be weekly');
     check(tie.onTie === 'alternate', 'tieBreak.onTie must be alternate');

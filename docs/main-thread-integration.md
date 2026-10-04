@@ -164,6 +164,20 @@ outcomes` shows pass and fail counts per kind. These counts show when there
 is enough field evidence to run a controlled comparison. They do not change
 picks or cards.
 
+## Tier 2: Sonnet, Astra or Sol
+
+Weekly pace picks a pool, then the pool picks a route:
+
+- **Claude wins:** Sonnet (`basis: policy`).
+- **Codex wins:** Astra and Sol share that pool and have no evidence between
+  them, so `pick` alternates per kind (`basis: trial`).
+- **Pools within 5 points, or pace unknown:** Sonnet, Astra, Sol, Sonnet, and so
+  on (`basis: trial`).
+
+A repo rule that names a route (for example Astra) beats all of this. Sol runs
+on the Mac Studio only; on the PC it is skipped. It needs Codex CLI 0.160 or
+later.
+
 ## Cards
 
 `pick` looks for a routing card for the task kind in this order:
@@ -177,8 +191,9 @@ model-routing card <task.mjs> --out <dir>
 A card only counts when it is `CALIBRATED` and fresh (under 30 days old),
 and it never overrides a repo rule: a repo rule always wins over a card.
 Exception: a fresh `NO_CLEAR_WINNER` card may choose the cheaper route
-(`basis: card-cheaper`), but only inside a Sonnet/Astra pace tie, and only
-when both routes have measured costs. Subscription routes have no measured
+(`basis: card-cheaper`), but only among routes that are alternating (a pace
+tie, or Astra and Sol after Codex wins pace), and only when every route in
+the rotation has a measured cost. Subscription routes have no measured
 cost, so this rarely applies.
 
 ## Local Pi model
