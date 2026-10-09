@@ -346,6 +346,7 @@ If your `score` needs to judge rather than count, it can ask a model:
 ## More
 
 - [Writing a task file](references/task-interface.md)
+- [CI and delivery](CI/CD.md)
 - [Using it from Claude Code](SKILL.md). Working as a skill is optional.
 - [Routing work from a main thread](docs/main-thread-integration.md)
 
