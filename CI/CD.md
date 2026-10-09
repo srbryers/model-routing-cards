@@ -54,9 +54,9 @@ per-call Jev cap is **$0.01** (`--jev-limit-usd`). Never pass `--force`,
 ## Triggers, runners, secrets: none configured
 
 No triggers, runners, cache, concurrency rules, permissions, GitHub secrets,
-or protected environments exist, because no workflow exists. Live settings
-are therefore **unresolved**, not waived: if a workflow appears, record its
-settings here.
+or protected environments exist, because no workflow exists. Verified live
+2026-10-09: `main` has no branch protection, and the repo has no Actions
+secrets and no environments. If a workflow appears, record its settings here.
 
 Secret names the code itself reads (local use only, never commit them):
 
