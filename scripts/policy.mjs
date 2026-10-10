@@ -355,7 +355,7 @@ function validateRules(override, policy, versioned) {
   const seen = new Set();
   for (const [i, rule] of (Array.isArray(override.rules) ? override.rules : []).entries()) {
     const path = `override.rules[${i}]`;
-    if (!fields(rule, path, ['kinds', 'source', 'why'], ['route', 'reasoning', 'excludeRoutes', 'note'])) continue;
+    if (!fields(rule, path, ['kinds', 'source', 'why'], ['route', 'reasoning', 'excludeRoutes', 'note', 'preserveRouteAfterFailures'])) continue;
     const kinds = list(rule.kinds, `${path}.kinds`, [...Object.keys(policy.kinds), '*'], 1);
     check(!kinds.includes('*') || kinds.length === 1, `${path}: wildcard * must be used alone`);
     for (const kind of kinds) {
@@ -366,6 +366,10 @@ function validateRules(override, policy, versioned) {
     if (has(rule, 'route')) {
       check(typeof rule.route === 'string', `${path}.route must be a string`);
       check(has(policy.routes, rule.route), `${path}: unknown route id ${rule.route}`);
+    }
+    if (has(rule, 'preserveRouteAfterFailures')) {
+      check(typeof rule.preserveRouteAfterFailures === 'boolean', `${path}.preserveRouteAfterFailures must be boolean`);
+      check(has(rule, 'route'), `${path}: preserveRouteAfterFailures requires a route`);
     }
     const excludes = has(rule, 'excludeRoutes') ? list(rule.excludeRoutes, `${path}.excludeRoutes`, Object.keys(policy.routes)) : [];
     for (const route of excludes) check(typeof route === 'string', `${path}.excludeRoutes entries must be strings`);
@@ -565,7 +569,11 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
     if (rule) {
       for (const candidate of proposed) candidate.fallback = true;
       proposed.unshift({ route: rule.route, reasoning: rule.reasoning ?? level, source,
-        escalated: thresholdReached, fallback: false, reason: `${origin} ${rule.source}: ${rule.why}` });
+        escalated: thresholdReached, fallback: false,
+        ...(has(rule, 'preserveRouteAfterFailures') ? { preserveRouteAfterFailures: rule.preserveRouteAfterFailures } : {}),
+        reason: `${origin} ${rule.source}: ${rule.why}`
+          + (thresholdReached && rule.preserveRouteAfterFailures === true
+            ? `; explicit policy retains route after ${failures} failures` : '') });
     }
   }
   const allowed = override?.machines ?? repoRules?.machines ?? machineIds(policy);
@@ -620,6 +628,7 @@ export function resolveCandidates(policy, kind, { repo = null, override = null, 
       reasoning, machines,
       pool: route.pool, vendor: route.vendor, tier, source: candidate.source,
       fallback: candidate.fallback, escalated: candidate.escalated,
+      ...(has(candidate, 'preserveRouteAfterFailures') ? { preserveRouteAfterFailures: candidate.preserveRouteAfterFailures } : {}),
       reason: candidate.reason + (capped ? `; reasoning capped at ${cap}` : '')
         + (reasoning !== candidate.reasoning && !external ? `; reasoning ${candidate.reasoning} adjusted to ${reasoning ?? 'omitted'} for ${id}` : ''),
       ...(external ? { instruction: route.instruction, requiresSpendApproval: route.requiresSpendApproval } : {}),

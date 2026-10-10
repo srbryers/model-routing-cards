@@ -73,7 +73,7 @@ test('CLI limit persists cooldown and blocked decisions are logged with code 4',
   assert.equal(await runPick(['--kind', 'quick-edit'], h), 0); assert.equal(last(h).route, 'luna');
   await runLimit(['luna', '--hours', '1'], h);
   assert.equal(await runPick(['--kind', 'quick-edit'], h), 5); assert.equal(last(h).status, 'needs_approval');
-  await runLimit(['opus'], h);
+  for (const route of ['opus', 'astra', 'sol', 'sol-review']) await runLimit([route], h);
   assert.equal(await runPick(['--kind', 'architecture'], h), 4); assert.equal(last(h).status, 'blocked');
   const logged = readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
   assert.equal(logged.at(-1).status, 'blocked');
@@ -337,4 +337,15 @@ test('the long test-plus-fix brief reaches the classifier whole, and the policy 
   assert.match(d.why[0], /^tier 2 for hard-bug-fix/); assert.ok(['sonnet', 'astra', 'sol'].includes(d.route));
   assert.deepEqual(d.classifier.top.slice(0, 2).map(v => v.kind), ['hard-bug-fix', 'multi-step-coding']);
   assert.ok(!readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').includes('regression tests'));
+});
+
+test('CLI retains repeated author models and refuses every same-model review route', async t => {
+  const h = harness(t);
+  await runLimit(['opus'], h);
+  const args = ['--kind', 'high-risk-review', '--author-model', 'gpt-6-astra', '--author-model', 'gpt-6.1-sol', '--json'];
+  assert.equal(await runPick(args, h), 0);
+  assert.equal(last(h).model, 'gpt-6-sol');
+  assert.deepEqual(last(h).authorModels, ['gpt-6-astra', 'gpt-6.1-sol']);
+  assert.equal(await runPick([...args, '--author-model', 'gpt-6-sol'], h), 4);
+  assert.equal(last(h).status, 'blocked');
 });

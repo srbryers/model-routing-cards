@@ -25,7 +25,7 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `quota` | Strict **greater-than** used-percent thresholds, five-hour Muse cooldown, tier preferences, pool reservations and `ceilingPercent`. The 70% and 85% thresholds are soft: they steer work between subscriptions and never stop it. The Claude 80% reservation and the ceiling are hard. A lone preference binds when its target pool is available; reservations always bind. |
 | `quota.ceilingPercent` | A number from 50 to 100 (now **95**). A pool with any readable window **at or above** the ceiling is exhausted: every route in it is removed, as a cooldown would remove it. `why` says so, for example `codex weekly 96% ≥ 95% ceiling: pool exhausted`. |
 | `tieBreak` | Tier 2 is Sonnet, Astra or Sol: repo rule, machine eligibility, weekly pace picks the pool, then the pool picks the route (Sonnet; or Astra and Sol alternating; or all three when the pools tie). Alternating choices are labelled `trial`. `routes` lists the rotation order and must all be tier-2 candidates. Sol runs on both machines. |
-| `review` | Review kinds require a different vendor from the author. |
+| `review` | `--author` excludes the author vendor; repeatable `--author-model` excludes every author model, allowing a different model from the same vendor. |
 | `cards` | `byKind` maps kinds to card files. Fresh `CALIBRATED` winners may select an allowed candidate; measured cheaper results can break a pace tie. The 30-day limit matches `TRUST.STALE_DAYS`. |
 | `classifier` | `minProbability: 0.6` and `minMargin: 0.15` decide when Jev must defer. Both are validated from 0 to 1. |
 | `fieldEvidence` | Outcome counts needed to justify a real bake-off. Never used for route selection or card trust. |
@@ -474,3 +474,18 @@ and `limits`. Pass the policy as the second argument so routes map to pools; wit
 it `poolAlternation` is empty.
 Policy and card explanations remain in `why`; repo notes remain in
 `notes`; resolver exclusions remain in `alternatives`.
+
+## GPT fallback for demanding work
+
+When Claude is exhausted or on cooldown, tier 3 tries GPT subscription routes
+before stopping. High-risk review tries GPT-6 Sol first, then Astra and
+GPT-6.1 Sol. Other tier-3 work tries Astra, GPT-6.1 Sol, then GPT-6 Sol.
+Quota ceilings, repo exclusions and machine limits still apply. There is no
+paid tier-3 fallback.
+
+For independent review, pass every author and repair model with repeatable
+`--author-model MODEL`. The router excludes those exact model IDs after case
+and whitespace normalization. A new session or reasoning effort does not make
+the same model independent. Use `--author ROUTE_OR_VENDOR` as well when the repo
+requires another vendor. Separate reviewers still inspect the source and
+evidence; a routing decision does not approve code.

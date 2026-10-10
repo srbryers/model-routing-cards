@@ -27,7 +27,7 @@ test('default policy validates, preserves all 23 kinds, and matches the trust ga
   assert.equal(Object.keys(policy.kinds).length, 23);
   assert.equal(policy.cards.maxAgeDays, TRUST.STALE_DAYS);
   assert.equal(policy.policyVersion, 1);
-  assert.equal(policy.updated, '2026-10-04');
+  assert.equal(policy.updated, '2026-10-10');
   assert.equal(policy.quota.overridesBeatHardStops, false);
   assert.deepEqual(policy.quota.thresholds.map(r => [r.pool, r.window, r.usedPercentAbove]),
     [['claude', 'five-hour', 70], ['claude', 'five-hour', 80], ['codex', 'weekly', 85]]);
@@ -184,7 +184,7 @@ test('two failures escalate quick-edit once to tier 2 at high', () => {
 
 test('two failures escalate tier 2 to Opus xhigh; terminal tiers stay unchanged', () => {
   const result = resolveCandidates(policy, 'routine-review', { failures: 2 }).candidates;
-  assert.deepEqual(ids(result), ['opus']);
+  assert.deepEqual(ids(result), ['opus', 'astra', 'sol', 'sol-review']);
   assert.equal(result[0].reasoning, 'xhigh');
   for (const kind of ['ui-visual', 'bulk-text', 'image-generation']) {
     assert.deepEqual(resolveCandidates(policy, kind, { failures: 2 }).candidates, resolveCandidates(policy, kind).candidates);
@@ -268,7 +268,7 @@ test('file rules beat central rules; unmatched kinds and omitted machines inheri
   const repo = 'acme/game-app';
   const override = rule('sonnet', ['architecture'], { reasoning: 'high' });
   const result = resolveCandidates(policy, 'architecture', { repo, override }).candidates;
-  assert.deepEqual(ids(result), ['sonnet', 'astra', 'opus']);
+  assert.deepEqual(ids(result), ['sonnet', 'astra', 'opus', 'sol', 'sol-review']);
   assert.match(result[0].reason, /repo override/);
   assert.match(result[1].reason, /policy repo acme\/game-app/);
   assert.ok(result.every(c => JSON.stringify(c.machines) === '["pc"]'));
@@ -571,7 +571,7 @@ test('a superseded wildcard route cannot rescue an override that excludes every 
 
 test('task-wide failures apply every escalation step and cap at tier 3', () => {
   for (const [failures, routes, tier, reasoning] of [
-    [2, ['sonnet', 'astra', 'sol'], 2, 'high'], [4, ['opus'], 3, 'xhigh'], [9, ['opus'], 3, 'xhigh'],
+    [2, ['sonnet', 'astra', 'sol'], 2, 'high'], [4, ['opus', 'astra', 'sol', 'sol-review'], 3, 'xhigh'], [9, ['opus', 'astra', 'sol', 'sol-review'], 3, 'xhigh'],
   ]) {
     const { candidates } = resolveCandidates(policy, 'quick-edit', { failures });
     assert.deepEqual(ids(candidates), routes);
