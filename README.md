@@ -363,3 +363,8 @@ can read this tool's policy as config.
 It is not an eval platform: no dashboards, tracing or online scoring.
 
 MIT.
+
+Tier-3 subscription fallback now includes GPT models. Independent reviews can
+use a different model from the same vendor with repeatable `--author-model`
+flags naming every author and repair model. `--author` retains stricter vendor
+exclusion. See [fallback rules](policy/README.md#gpt-fallback-for-demanding-work).

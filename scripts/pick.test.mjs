@@ -91,13 +91,13 @@ test('review excludes author vendor, including a repo override', () => {
     assert.ok(!['astra', 'luna', 'sol'].includes(d.route));
   }
   const d = choose({ kind: 'high-risk-review', author: 'anthropic' });
-  assert.equal(d.route, 'astra'); assert.match(d.why.join(' '), /nearest/);
+  assert.equal(d.route, 'sol-review');
 });
 test('review fallback still respects exclusions, machine, quota and cooldown', () => {
-  const d = choose({ kind: 'high-risk-review', author: 'anthropic', machine: 'pc' }, { limits: { astra: '2026-10-05', luna: '2026-10-05', sol: '2026-10-05' } });
+  const d = choose({ kind: 'high-risk-review', author: 'anthropic', machine: 'pc' }, { limits: { astra: '2026-10-05', luna: '2026-10-05', sol: '2026-10-05', 'sol-review': '2026-10-05' } });
   assert.equal(d.status, 'blocked');
   // Sol runs on the PC, so with Astra and Luna limited it is the review fallback.
-  assert.equal(choose({ kind: 'high-risk-review', author: 'anthropic', machine: 'pc' }, { limits: { astra: '2026-10-05', luna: '2026-10-05' } }).route, 'sol');
+  assert.equal(choose({ kind: 'high-risk-review', author: 'anthropic', machine: 'pc' }, { limits: { astra: '2026-10-05', luna: '2026-10-05', 'sol-review': '2026-10-05' } }).route, 'sol');
 });
 test('fresh calibrated card can choose only an allowed route', () => {
   const d = choose({}, { cards: { 'multi-step-coding': card() }, alternation: { 'multi-step-coding': 'sonnet' } });
@@ -313,9 +313,9 @@ test('tier-1 exhausted subscriptions offer the first unmeasured metered route, w
   assert.equal(approved.route, d.route); assert.equal(approved.status, 'ok'); assert.equal(approved.spendApproved, true);
   assert.equal(choose({ kind: 'quick-edit' }, { limits: { muse: '2026-10-05' } }).route, 'luna');
 });
-test('tier 3 stops when limited; paid fallbacks honor their own cooldowns', () => {
+test('tier 3 uses GPT when Claude is limited; paid fallbacks honor their own cooldowns', () => {
   const d = choose({ kind: 'architecture' }, { limits: { opus: '2026-10-05' } });
-  assert.equal(d.status, 'blocked'); assert.match(d.why.join(' '), /no allowed metered fallback for tier 3/);
+  assert.equal(d.route, 'astra');
   const limits = { muse: '2026-10-05', luna: '2026-10-05', 'fw-deepseek-v4p1-flash': '2026-10-05' };
   assert.equal(choose({ kind: 'quick-edit' }, { limits }).route, 'fw-minimax-m3');
   limits['fw-minimax-m3'] = '2026-10-05';
@@ -643,13 +643,13 @@ test('ceiling: a main thread at exactly 95% Claude weekly loses Claude; at 94.9%
   const full = changed(10, 50, 95);
   assert.ok(['astra', 'sol'].includes(choose({ mainThread: true }, { quota: full }).route));
   const tier3 = choose({ kind: 'architecture', mainThread: true }, { quota: full });
-  assert.equal(tier3.status, 'blocked'); assert.match(tier3.why.join(' '), /claude weekly 95% ≥ 95% ceiling: pool exhausted/);
+  assert.equal(tier3.route, 'astra'); assert.match(tier3.why.join(' '), /claude weekly 95% ≥ 95% ceiling: pool exhausted/);
   assert.equal(choose({ kind: 'architecture', mainThread: true }, { quota: changed(10, 50, 94.9) }).route, 'opus');
 });
 test('ceiling: with one window exhausted and another missing, --require-quota still sees the ceiling', () => {
   const partial = changed(96, 19); partial.claude.windows = partial.claude.windows.filter(w => w.kind === 'five-hour');
   const tier3 = choose({ kind: 'architecture', requireQuota: true }, { quota: partial });
-  assert.equal(tier3.status, 'blocked'); assert.match(tier3.why.join(' '), /claude 5h 96% ≥ 95% ceiling/);
+  assert.equal(tier3.route, 'astra'); assert.match(tier3.why.join(' '), /claude 5h 96% ≥ 95% ceiling/);
   assert.doesNotMatch(tier3.why.join(' '), /required quota missing/);
   // Tier 2 leaves Claude, so the missing Claude weekly window no longer matters.
   const tier2 = choose({ requireQuota: true }, { quota: partial });
@@ -685,4 +685,32 @@ test('kind descriptions carry the precedence Jev needs', () => {
   assert.match(text('high-risk-review'), /Wins over the other review kinds/);
   assert.match(text('simple-bug-fix'), /known/); assert.match(text('simple-bug-fix'), /hard-bug-fix/);
   assert.match(text('hard-bug-fix'), /even if the symptom reproduces/);
+});
+
+test('exhausted Claude high-risk review uses an independent GPT model', () => {
+  const d = choose({ kind: 'high-risk-review', authorModels: ['gpt-6-astra', 'gpt-6.1-sol'] }, { quota: changed(100, 33) });
+  assert.equal(d.status, 'ok'); assert.equal(d.route, 'sol-review'); assert.equal(d.model, 'gpt-6-sol');
+  assert.deepEqual(d.authorModels, ['gpt-6-astra', 'gpt-6.1-sol']);
+  assert.ok(d.alternatives.some(a => a.route === 'astra' && /authored/.test(a.rejected)));
+  assert.ok(d.alternatives.some(a => a.route === 'sol' && /authored/.test(a.rejected)));
+});
+test('all author models excluded blocks instead of granting self review or paid fallback', () => {
+  const d = choose({ kind: 'high-risk-review', authorModels: [' GPT-6-Astra ', 'gpt-6.1-sol', 'gpt-6-sol'] }, { quota: changed(100, 33) });
+  assert.equal(d.status, 'blocked'); assert.equal(d.spendApproved, false);
+});
+test('review independence cannot bypass a Codex quota ceiling or vendor exclusion', () => {
+  assert.equal(choose({ kind: 'high-risk-review', authorModels: ['gpt-6-astra'] }, { quota: changed(100, 100) }).status, 'blocked');
+  assert.equal(choose({ kind: 'high-risk-review', author: 'openai' }, { quota: changed(100, 33) }).status, 'blocked');
+});
+test('model exclusion applies across aliases and rejects malformed lists', () => {
+  const p = structuredClone(policy); p.routes['sol-review'].model = 'gpt-6-astra';
+  const d = choose({ kind: 'high-risk-review', authorModels: ['gpt-6-astra', 'gpt-6.1-sol'] }, { policy: p, quota: changed(100, 33) });
+  assert.equal(d.status, 'blocked');
+  for (const authorModels of ['gpt-6-astra', [null], [' ']]) assert.throws(() => choose({ authorModels }), /authorModels/);
+});
+
+test('installed preserve-route behavior survives GPT fallback and still honors ceilings', () => {
+  const rule = override('sol'); rule.rules[0].preserveRouteAfterFailures = true;
+  assert.equal(choose({ failures: 4 }, { override: rule }).route, 'sol');
+  assert.notEqual(choose({ failures: 4 }, { override: rule, quota: changed(20, 100) }).route, 'sol');
 });

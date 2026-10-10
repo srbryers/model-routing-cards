@@ -1,6 +1,6 @@
 {
   "policyVersion": 1,
-  "updated": "2026-10-04",
+  "updated": "2026-10-10",
   "routes": {
     "muse": {
       "provider": "acp-muse",
@@ -358,6 +358,28 @@
       },
       "note": "mac-studio only: BB's Pi extension does not start on Windows.",
       "disabled": "OpenRouter credit is about $0.21; calls return 402. Top up, then remove this field."
+    },
+    "sol-review": {
+      "type": "bb",
+      "provider": "codex",
+      "model": "gpt-6-sol",
+      "machines": [
+        "mac-studio",
+        "pc"
+      ],
+      "pool": "codex",
+      "vendor": "openai",
+      "supportedReasoning": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "note": "GPT fallback for independent review; must differ from every author and repair model.",
+      "cardModels": [
+        "openai/gpt-6-sol"
+      ]
     }
   },
   "pools": {
@@ -416,7 +438,11 @@
       "candidates": [
         "opus"
       ],
-      "fallbacks": [],
+      "fallbacks": [
+        "astra",
+        "sol",
+        "sol-review"
+      ],
       "reasoning": "xhigh"
     }
   },
@@ -585,7 +611,11 @@
       "candidates": [
         "opus"
       ],
-      "fallbacks": []
+      "fallbacks": [
+        "astra",
+        "sol",
+        "sol-review"
+      ]
     },
     "ios": {
       "tier": 3,
@@ -594,7 +624,11 @@
       "candidates": [
         "opus"
       ],
-      "fallbacks": []
+      "fallbacks": [
+        "astra",
+        "sol",
+        "sol-review"
+      ]
     },
     "architecture": {
       "tier": 3,
@@ -603,7 +637,11 @@
       "candidates": [
         "opus"
       ],
-      "fallbacks": []
+      "fallbacks": [
+        "astra",
+        "sol",
+        "sol-review"
+      ]
     },
     "high-risk-review": {
       "tier": 3,
@@ -612,7 +650,11 @@
       "candidates": [
         "opus"
       ],
-      "fallbacks": []
+      "fallbacks": [
+        "sol-review",
+        "astra",
+        "sol"
+      ]
     },
     "data-contract": {
       "tier": 3,
@@ -621,7 +663,11 @@
       "candidates": [
         "opus"
       ],
-      "fallbacks": []
+      "fallbacks": [
+        "astra",
+        "sol",
+        "sol-review"
+      ]
     },
     "bulk-text": {
       "tier": "local",
@@ -669,7 +715,11 @@
       "candidates": [
         "opus"
       ],
-      "fallbacks": []
+      "fallbacks": [
+        "astra",
+        "sol",
+        "sol-review"
+      ]
     }
   },
   "escalation": {

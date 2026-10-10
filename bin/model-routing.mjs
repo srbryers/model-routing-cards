@@ -40,7 +40,7 @@ const USAGE = `usage: model-routing <command> [args]
                            print a policy.local.json from an older policy file (no writes)
 
 pick: --brief-file F | --brief TEXT, --kind K, --repo DIR, --machine ID,
-      --failures N, --author ROUTE_OR_VENDOR, --main-thread, --project ID,
+      --failures N, --author ROUTE_OR_VENDOR, --author-model MODEL (repeatable), --main-thread, --project ID,
       --section ID, --title T, --prompt-file F, --execute, --no-quota,
       --jev-limit-usd N (default 0.01), --cards-dir DIR, --require-quota, --spend-approved ROUTE[,ROUTE...], --json
 limit: --hours N (default from policy, otherwise 5), --json
@@ -74,7 +74,7 @@ const activePolicy = deps => deps.loadPolicy ? deps.loadPolicy() : loadEffective
 const pickOptions = {
   'brief-file': { type: 'string' }, brief: { type: 'string' }, kind: { type: 'string' },
   repo: { type: 'string' }, machine: { type: 'string' }, failures: { type: 'string' },
-  author: { type: 'string' }, 'main-thread': { type: 'boolean' }, project: { type: 'string' },
+  author: { type: 'string' }, 'author-model': { type: 'string', multiple: true }, 'main-thread': { type: 'boolean' }, project: { type: 'string' },
   section: { type: 'string' }, title: { type: 'string' }, 'prompt-file': { type: 'string' },
   execute: { type: 'boolean' }, 'no-quota': { type: 'boolean' }, json: { type: 'boolean' },
   'jev-limit-usd': { type: 'string' }, 'cards-dir': { type: 'string' }, 'require-quota': { type: 'boolean' }, 'spend-approved': { type: 'string' },
@@ -128,7 +128,7 @@ export async function runPick(args, deps = {}) {
   const { error: localConfigError, ...localConfig } = (deps.loadLocalConfig ?? loadLocalConfig)(policy, { env: deps.env ?? process.env });
   const brief = flags['brief-file'] === undefined ? flags.brief : (deps.readFile ?? readFileSync)(resolve(flags['brief-file']), 'utf8');
   const input = { kind: flags.kind, execute: flags.execute, failures, machine: flags.machine,
-    approvedRoutes, requireQuota: flags['require-quota'], author: flags.author, mainThread: flags['main-thread'], project: flags.project,
+    approvedRoutes, requireQuota: flags['require-quota'], author: flags.author, authorModels: flags['author-model'], mainThread: flags['main-thread'], project: flags.project,
     section: flags.section, title: flags.title, promptFile: flags['prompt-file'] };
   // ⚠ A local quota read is free; --execute authorizes classification only, never dispatch.
   const quota = flags['no-quota'] ? null : await (deps.readQuota ?? readQuota)();

@@ -33,6 +33,11 @@ export function pick(input, deps) {
   if (!Array.isArray(approvedRoutes) || approvedRoutes.some(route => typeof route !== 'string' || !Object.hasOwn(policy.routes, route))) {
     throw new TypeError('approvedRoutes must be a list of known route IDs');
   }
+  const authorModels = input.authorModels ?? [];
+  if (!Array.isArray(authorModels) || authorModels.some(model => typeof model !== 'string' || !model.trim() || model.length > 200)) {
+    throw new TypeError('authorModels must be a list of nonempty model IDs');
+  }
+  const normalizedAuthors = new Set(authorModels.map(model => model.normalize('NFKC').trim().toLowerCase()));
   const now = new Date(deps.now).getTime();
   if (!Number.isFinite(now)) throw new TypeError('now must be a valid date');
   const quota = quotaPace(deps.quota, now);
@@ -48,6 +53,7 @@ export function pick(input, deps) {
   };
   if (Object.entries(policy.pools).some(([pool, p]) => p.readable && missingQuota(pool))) warnQuota();
   const result = { id: deps.id, at: new Date(now).toISOString(), status: 'ok', repo, why, alternatives, quota, notes, beforeSpawn: [], approvedRoutes: [...new Set(approvedRoutes)], spendApproved: false };
+  if (normalizedAuthors.size) result.authorModels = [...normalizedAuthors];
   if (!input.kind && classifier) result.classifier = { confidence: classifier.confidence, top: classifier.top, costUsd: classifier.costUsd };
   const kind = input.kind ?? (classifier?.status === 'ok' ? classifier.kind : undefined);
   if (!kind) {
@@ -85,6 +91,8 @@ export function pick(input, deps) {
   const authorVendor = Object.hasOwn(policy.routes, input.author) ? policy.routes[input.author].vendor : input.author;
   const reviewing = policy.review.differentVendor && policy.review.kinds.includes(kind) && authorVendor;
   const vendorAllowed = c => !reviewing || c.vendor !== authorVendor;
+  const modelAllowed = c => !policy.review.kinds.includes(kind)
+    || !normalizedAuthors.has(c.model?.normalize('NFKC').trim().toLowerCase());
   if (reviewing && candidates.length && !candidates.some(vendorAllowed)) {
     why.push(`no candidate from a different vendor than ${authorVendor}; trying nearest tier`);
     const expanded = resolveCandidates(policy, kind, { ...options, reviewFallbacks: true });
@@ -100,8 +108,9 @@ export function pick(input, deps) {
   };
   const windowLabel = window => (window === 'five-hour' ? '5h' : window);
   candidates = candidates.filter(c => vendorAllowed(c) || reject(c, `review must use a different vendor than ${authorVendor}`));
+  candidates = candidates.filter(c => modelAllowed(c) || reject(c, `review model ${c.model} authored the candidate`));
   candidates = candidates.filter(c => !((c.source === 'repo' || c.source === 'file') && c.escalated
-    && options.failures >= policy.escalation.escalateAfterFailures)
+    && options.failures >= policy.escalation.escalateAfterFailures && c.preserveRouteAfterFailures !== true)
     || reject(c, 'escalated repo route skipped after repeated failures'));
   candidates = candidates.filter(c => !(Date.parse(limits[c.route]) > now)
     || limitReject(c, `limit cooldown until ${limits[c.route]}`, 'cooldown'));
@@ -144,6 +153,7 @@ export function pick(input, deps) {
     alternatives.push(...expanded.blocked.filter(b => fallbackIds.includes(b.route)).map(({ route, why }) => ({ route, rejected: why })));
     candidates = expanded.candidates.filter(c => fallbackIds.includes(c.route) && c.pool === 'metered')
       .filter(c => vendorAllowed(c) || reject(c, `review must use a different vendor than ${authorVendor}`))
+      .filter(c => modelAllowed(c) || reject(c, `review model ${c.model} authored the candidate`))
       .filter(c => !(Date.parse(limits[c.route]) > now) || reject(c, `limit cooldown until ${limits[c.route]}`));
     meteredFallback = candidates.length > 0;
     why.push(meteredFallback ? 'all subscription candidates removed by the quota ceiling or cooldowns; metered fallback order is unmeasured; no card backs it'
