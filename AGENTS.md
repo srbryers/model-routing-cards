@@ -10,3 +10,8 @@ Prose in this repo follows the Communication OS profile at ~/.communication-os. 
 ## GitHub text is never hard-wrapped (Sebastian, 2026-10-28)
 - Text written for GitHub (PR bodies, issue bodies, review comments) is never hard-wrapped: one paragraph or one bullet is one long line. GitHub keeps single line breaks in comments, so a draft wrapped at 70-80 chars renders as a narrow column inside GitHub's already-fixed comment column. (Named from ui-kit PR #217, 2026-10-28, where the PR body was drafted as a wrapped file and posted as-is.)
 - Files inside this repo keep the repo's wrapped style; the rule is about text posted to GitHub. Unwrap a draft before posting it.
+
+## Long-term architecture first, on every project (Sebastian, 2026-10-29)
+- For any recommended plan or decision, on every project Sebastian works on, always opt for the correct long-term scalable architecture: one system per platform sharing contracts, shared token sets over pasted values, records as the source of truth over hand-typed copies, no local forks, no second renderer on one page to save a port.
+- The only exception is quick prototyping, and it must be labelled as such when used: a prototype is a throwaway check, not a foundation, and it must never be copied forward as the build (as the Taura website job's simplified screens were copied into two drafts on 2026-10-28/29).
+- When a short-term route is cheaper or faster, say so plainly and still recommend the long-term route, with the cost and the fidelity gap of each named. Do not let a cheap route become the plan by default.
