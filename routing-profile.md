@@ -17,20 +17,28 @@ says otherwise.
 > ⚠ **NOTHING HERE IS MEASURED YET.** Every card is `UNCALIBRATED`. The choices
 > below are starting points that the cards exist to confirm or overturn.
 
+## Flora Pilot
+
+Sebastian's October 30, 2026 SETUP-1B decision governs Flora. Sonnet implements UI with Sol backup. Opus handles concepts, refinement, and UI plans. Sol handles other implementation with no automatic alternate. Elevation uses a separate Sonnet session with no Opus escalation. Non-UI planning uses Astra with UNCALIBRATED trust.
+
+The [Flora profile](policy/flora/README.md) records approved routes, role policy, board conditions, and Decision 1 usage records. Other projects retain their current routes. Field outcomes never promote these cards.
+
 ## Who does what
 
 | Work type | Default | Also measured | Card | Card status |
 |---|---|---|---|---|
 | Everyday building | **Muse Spark** | Opus 5.5 | `tasks/implementation.mjs` | `UNCALIBRATED` |
-| Demanding work | **Opus 5.5, extra-high effort** | — | none yet | — |
-| UI work | **Opus 5.5, extra-high effort** | — | none yet | — |
-| iOS work | **Opus 5.5, extra-high effort** | — | none yet | — |
-| Architectural decisions | **Opus 5.5, extra-high effort** | — | none yet | — |
-| Recovery after repeated failures | **Opus 5.5, extra-high effort** | — | none yet | — |
-| Bug fixes | candidates: **Sonnet 5.5, GPT-6 Luna** | — | `tasks/bug-fix.mjs` | `UNCALIBRATED` |
+| Demanding work | **Opus 5.5, extra-high effort** | None | none yet | None |
+| Flora UI implementation | **Sonnet 5.5; Sol backup** | No quality comparison yet | `flora-ui-builder` | `UNCALIBRATED` |
+| Flora concepts, refinement, UI plans | **Opus 5.5, provider default effort** | No automatic fallback | `flora-designer` | `UNCALIBRATED` |
+| Other projects: UI work | **Opus 5.5, extra-high effort** | None | none yet | None |
+| iOS work | **Opus 5.5, extra-high effort** | None | none yet | None |
+| Architectural decisions | **Opus 5.5, extra-high effort** | None | none yet | None |
+| Recovery after repeated failures | **Opus 5.5, extra-high effort** | None | none yet | None |
+| Bug fixes | candidates: **Sonnet 5.5, GPT-5.6 Luna** | None | `tasks/bug-fix.mjs` | `UNCALIBRATED` |
 | Code review | rotate candidates (see below) | Opus 5.5, Sonnet 5.5, DeepSeek V4 Pro | `tasks/review.mjs` | `UNCALIBRATED` |
-| Quick, well-scoped edits | **Muse Spark** (everyday builder) | GPT-6 Luna | `tasks/quick-edit.mjs` | `UNCALIBRATED` |
-| Semantic judgement in scoring | **Jev** | — | `scripts/jev.check.mjs` | not run on these tasks |
+| Quick, well-scoped edits | **Muse Spark** (everyday builder) | GPT-5.6 Luna | `tasks/quick-edit.mjs` | `UNCALIBRATED` |
+| Semantic judgement in scoring | **Jev** | None | `scripts/jev.check.mjs` | not run on these tasks |
 
 Open choices in this table, not yet decided by Sebastian:
 

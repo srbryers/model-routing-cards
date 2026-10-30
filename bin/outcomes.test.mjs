@@ -282,7 +282,7 @@ test('valid adverse field outcomes cannot change pick or receipt cards, and are 
   mkdirSync(join(runs, 'quick-edit'), { recursive: true });
   const task = join(repo, 'task.mjs');
   writeFileSync(task, "export const task = { id: 'quick-edit', models: ['a', 'b'], prompt: () => '', score: () => ({}) };\n");
-  const receipts = ['meta/muse-spark-1.3', 'openai/gpt-6-luna'].flatMap((model, m) =>
+  const receipts = ['meta/muse-spark-1.3', 'openai/gpt-5.6-luna'].flatMap((model, m) =>
     Array.from({ length: 3 }, () => ({ model, state: 'completed', gates_passed: true,
       metrics: { score: m === 0 ? 1 : 0.5 }, cost_usd: 0.001 })));
   receipts.forEach((r, i) => writeFileSync(join(runs, 'quick-edit', `${i}.json`), JSON.stringify(r)));

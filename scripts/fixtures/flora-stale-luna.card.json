@@ -1,0 +1,6 @@
+{
+  "task": "flora-review-codex",
+  "trust": "UNCALIBRATED",
+  "recommend": "openai/gpt-6-luna",
+  "models": []
+}

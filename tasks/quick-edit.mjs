@@ -1,7 +1,7 @@
 /**
  * Quick edit: a small, well-scoped change to one file.
  *
- * Policy (routing-profile.md): Muse Spark is the default builder. GPT-6 Luna
+ * Policy (routing-profile.md): Muse Spark is the default builder. GPT-5.6 Luna
  * is here because the benchmark evidence names it the quick-edit pick on cost
  * (references/best-models-per-work-type.md). This card tests whether the cheap
  * model holds up on a change with one easy-to-miss requirement.

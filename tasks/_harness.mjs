@@ -35,7 +35,7 @@ export const MODELS = Object.freeze({
   spark: 'meta/muse-spark-1.3',
   opus: 'anthropic/claude-opus-5.5',
   sonnet: 'anthropic/claude-sonnet-5.5',
-  luna: 'openai/gpt-6-luna',
+  luna: 'openai/gpt-5.6-luna',
   deepseekPro: 'deepseek/deepseek-v4-pro',
 });
 

@@ -1,3 +1,4 @@
+import { isFloraRole, pickFlora } from './flora.mjs';
 import { resolveCandidates, machineIds } from './policy.mjs';
 
 const WINDOW_MS = { 'five-hour': 5 * 3_600_000, weekly: 7 * 86_400_000 };
@@ -29,6 +30,8 @@ export function quotaPace(snapshot, now) {
 /** Pure decision: no clocks, files, commands, credentials or state mutation. */
 export function pick(input, deps) {
   const { policy, override = null, repo = null, classifier, alternation = {}, poolAlternation = {}, limits = {}, cards = {}, localConfig = null, localConfigError = null } = deps;
+  if (isFloraRole(input.kind)) return pickFlora(input, deps);
+  if (repo?.toLowerCase() === 'srbryers/flora') return { id: deps.id, at: new Date(deps.now).toISOString(), status: 'needs_kind', route: null, spawn: null, callsAllowed: 0, notes: [], alternatives: [], beforeSpawn: [], why: ['Flora requires an explicit approved pipeline role'] };
   const approvedRoutes = input.approvedRoutes ?? [];
   if (!Array.isArray(approvedRoutes) || approvedRoutes.some(route => typeof route !== 'string' || !Object.hasOwn(policy.routes, route))) {
     throw new TypeError('approvedRoutes must be a list of known route IDs');

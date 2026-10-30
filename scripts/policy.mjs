@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { validateLocalConfig } from './local-config.mjs';
+import { assertLiveIdentity, LUNA_MODEL, LUNA_CARD } from './identity.mjs';
 import { TRUST } from './card.mjs';
 
 const VENDORS = ['anthropic', 'openai', 'meta', 'local', 'google', 'moonshot', 'zhipu', 'deepseek', 'minimax', 'alibaba'];
@@ -62,6 +63,7 @@ function checkRouteReasoning(ids, level, routes, path, check) {
 
 export function validatePolicy(policy) {
   const errors = [];
+  try { assertLiveIdentity(policy); } catch (error) { errors.push(error.message); }
   const { check, fields, list, reasoning } = checks(errors);
   if (!fields(policy, 'policy', ['policyVersion', 'updated', 'routes', 'pools', 'tiers',
     'kinds', 'escalation', 'quota', 'tieBreak', 'review', 'cards', 'machines', 'repos', 'classifier', 'fieldEvidence'])) return { ok: false, errors };
@@ -81,6 +83,7 @@ export function validatePolicy(policy) {
   const machines = object(policy.machines) ? policy.machines : {};
   const machineNames = Object.keys(machines).filter(id => id !== 'default');
   check(machineNames.includes(machines.default), 'machines.default must name a configured machine');
+  check(routes.luna?.model === LUNA_MODEL && JSON.stringify(routes.luna?.cardModels) === JSON.stringify([LUNA_CARD]), 'Luna route and card identity must match canonical metadata');
   const routeIds = Object.keys(routes);
   const routeList = (value, path, min = 0) => {
     const ids = list(value, path, routeIds, min);

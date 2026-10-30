@@ -34,6 +34,8 @@ import { pathToFileURL } from 'node:url';
 import { buildCard, TRUST } from './card.mjs';
 import { call, parseModel, keyNames, keyNameFor, isContributorModel } from './providers.mjs';
 
+import { assertLiveIdentity } from './identity.mjs';
+
 const CATALOG = 'https://openrouter.ai/api/v1/models';
 
 const argv = process.argv.slice(2);
@@ -88,6 +90,8 @@ const task = (await import(pathToFileURL(taskPath).href)).task;
 for (const k of ['id', 'models', 'prompt', 'score']) {
   if (!task?.[k]) throw new Error(`task is missing "${k}" — see references/task-interface.md`);
 }
+assertLiveIdentity(task.models);
+if (task.pipelineRole && has('execute')) throw new Error('Flora calibration requires a separately approved job harness; no provider call');
 const taskDir = dirname(taskPath);
 const runsDir = resolve(taskDir, 'runs', task.id);
 mkdirSync(runsDir, { recursive: true });

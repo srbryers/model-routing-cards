@@ -13,6 +13,7 @@ import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { loadPolicy, loadOverride, repoKey, machineIds, parseUniqueJson } from '../scripts/policy.mjs';
+import { isFloraRole } from '../scripts/flora.mjs';
 import { pick } from '../scripts/pick.mjs';
 import { loadLocalConfig, localConfigStatus } from '../scripts/local-config.mjs';
 import { loadEffectivePolicy, exportLocal } from '../scripts/policy-local.mjs';
@@ -112,7 +113,7 @@ export async function runPick(args, deps = {}) {
   const policy = activePolicy(deps);
   if (flags.brief !== undefined && flags['brief-file'] !== undefined) throw new TypeError('Use --brief or --brief-file, not both');
   for (const [flag, value] of Object.entries(flags)) if (typeof value === 'string' && !value.trim()) throw new TypeError(`--${flag} needs a nonempty value`);
-  if (flags.kind !== undefined && !Object.hasOwn(policy.kinds, flags.kind)) throw new TypeError(`Unknown kind: ${flags.kind}`);
+  if (flags.kind !== undefined && !isFloraRole(flags.kind) && !Object.hasOwn(policy.kinds, flags.kind)) throw new TypeError(`Unknown kind: ${flags.kind}`);
   if (flags.machine !== undefined && !machineIds(policy).includes(flags.machine)) throw new TypeError(`Unknown machine: ${flags.machine}`);
   if (flags.author !== undefined && !Object.hasOwn(policy.routes, flags.author)
     && !Object.values(policy.routes).some(route => route.vendor === flags.author)) throw new TypeError('Unknown author route or vendor');
@@ -132,7 +133,8 @@ export async function runPick(args, deps = {}) {
     section: flags.section, title: flags.title, promptFile: flags['prompt-file'] };
   // ⚠ A local quota read is free; --execute authorizes classification only, never dispatch.
   const quota = flags['no-quota'] ? null : await (deps.readQuota ?? readQuota)();
-  const classifier = flags.kind ? undefined : brief?.trim()
+  const classifier = flags.kind ? undefined : repo?.toLowerCase() === 'srbryers/flora'
+    ? { status: 'needs_kind', reason: 'Flora requires an explicit approved pipeline role' } : brief?.trim()
     ? await (deps.classify ?? classify)({ brief, execute: flags.execute, limitUsd }, { policy })
     : { status: 'needs_kind', reason: 'missing_brief', confidence: null, top: [], costUsd: 0 };
   const cards = {};
@@ -156,7 +158,7 @@ export async function runPick(args, deps = {}) {
     return logDecision(dir, decision, brief);
   });
   (deps.stdout ?? (text => process.stdout.write(text)))(present(decision, flags.json || !(deps.isTTY ?? process.stdout.isTTY)));
-  return { ok: 0, external: 0, needs_approval: 5, needs_kind: 3, blocked: 4 }[decision.status];
+  return { ok: 0, external: 0, needs_approval: 5, needs_kind: 3, blocked: 4, needs_pool_state: 4, awaiting_scheduler: 4, waiting_capacity: 4, blocked_identity: 4 }[decision.status];
 }
 
 function describeSources({ sources, effects, local }) {

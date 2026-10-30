@@ -8,6 +8,7 @@
   "exports": {
     ".": "./scripts/card.mjs",
     "./card": "./scripts/card.mjs",
+    "./flora": "./scripts/flora.mjs",
     "./policy": "./scripts/policy.mjs",
     "./policy-local": "./scripts/policy-local.mjs",
     "./jev": "./scripts/jev.mjs",
@@ -34,7 +35,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test scripts/*.test.mjs bin/*.test.mjs"
+    "test": "node scripts/flora.check.mjs && node --test scripts/*.test.mjs bin/*.test.mjs",
+    "check:flora": "node scripts/flora.check.mjs"
   },
   "license": "MIT"
 }

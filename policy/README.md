@@ -238,7 +238,7 @@ and multi-step-coding → implementation, and all review kinds → review.
 Each worker route can declare unique `cardModels` aliases. These match the exact
 model IDs in task cards, including `meta/muse-spark-1.3`,
 `anthropic/claude-sonnet-5.5`, `anthropic/claude-opus-5.5` and the existing task slug
-`openai/gpt-6-luna` for the Luna route. Sol uses `openai/gpt-6.1-sol`, the same slug style. Aliases are explicit policy mappings;
+`openai/gpt-5.6-luna` for the Luna route. Sol uses `openai/gpt-6.1-sol`, the same slug style. Aliases are explicit policy mappings;
 changing a route model needs review of its aliases and existing measurements.
 The metered DeepSeek route has no card alias; existing DeepSeek measurements do not establish it as a winner.
 
@@ -474,3 +474,7 @@ and `limits`. Pass the policy as the second argument so routes map to pools; wit
 it `poolAlternation` is empty.
 Policy and card explanations remain in `why`; repo notes remain in
 `notes`; resolver exclusions remain in `alternatives`.
+
+## Flora Pilot
+
+[Flora setup step 3](flora/README.md) adds eleven static role cards and a scoped role policy. Explicit Flora roles enter the approved profile before generic selection. Other projects use the shared policy. The Luna route and card identity use `gpt-5.6-luna` and `openai/gpt-5.6-luna`.

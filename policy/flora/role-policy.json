@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "scope": "flora-pilot",
+  "roles": {
+    "flora-planner": {
+      "classes": [
+        "strategic-planner"
+      ],
+      "vendors": [
+        "openai"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    },
+    "flora-designer": {
+      "classes": [
+        "design-lead"
+      ],
+      "vendors": [
+        "anthropic"
+      ],
+      "providers": [
+        "claude-code"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    },
+    "flora-ui-builder": {
+      "classes": [
+        "implementation-review",
+        "implementation-actor"
+      ],
+      "vendors": [
+        "anthropic",
+        "openai"
+      ],
+      "providers": [
+        "claude-code",
+        "codex"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    },
+    "flora-general-builder": {
+      "classes": [
+        "implementation-actor"
+      ],
+      "vendors": [
+        "openai"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    },
+    "flora-review-claude": {
+      "classes": [
+        "implementation-review"
+      ],
+      "vendors": [
+        "anthropic"
+      ],
+      "providers": [
+        "claude-code"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    },
+    "flora-review-codex": {
+      "classes": [
+        "independent-review"
+      ],
+      "vendors": [
+        "openai"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    },
+    "flora-ui-elevation": {
+      "classes": [
+        "implementation-review"
+      ],
+      "vendors": [
+        "anthropic"
+      ],
+      "providers": [
+        "claude-code"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code",
+        "No design-lead escalation",
+        "Cannot occupy a correctness board seat"
+      ]
+    },
+    "flora-judge": {
+      "classes": [
+        "semantic-judge"
+      ],
+      "vendors": [
+        "unconfirmed"
+      ],
+      "providers": [
+        "typesafe"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code",
+        "Semantic use blocked until family identity is confirmed",
+        "Cannot clear reviewer blocks or compute factual gates"
+      ]
+    },
+    "flora-sim-runner": {
+      "classes": [
+        "implementation-actor"
+      ],
+      "vendors": [
+        "openai"
+      ],
+      "providers": [
+        "codex"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    },
+    "flora-sim-persona-judge": {
+      "classes": [
+        "semantic-judge"
+      ],
+      "vendors": [
+        "unconfirmed"
+      ],
+      "providers": [
+        "typesafe"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code",
+        "Semantic use blocked until family identity is confirmed",
+        "Cannot clear reviewer blocks or compute factual gates"
+      ]
+    },
+    "flora-orchestrator": {
+      "classes": [
+        "implementation-review"
+      ],
+      "vendors": [
+        "anthropic"
+      ],
+      "providers": [
+        "claude-code"
+      ],
+      "prohibitions": [
+        "No unlisted class, vendor, provider, fallback, or failure escalation",
+        "No Gemini or Pi without Sebastian direction",
+        "Claude only through Claude Code"
+      ]
+    }
+  }
+}
