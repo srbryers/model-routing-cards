@@ -82,15 +82,24 @@ Only eligible routes compete. Routes count as quality-equal unless records for t
 The existing `outcomes.jsonl` records supply per-route pass rates for the job
 class. Corrections use append order. Pass, partial, and fail results form the
 denominator; only pass results form the numerator. Abandoned results are excluded.
-Both eligible routes need results before a difference can apply. These field
-rates describe recorded jobs, not controlled calibration, and never promote trust.
-If outcome coverage is incomplete, fresh card measured rows for both routes can
-supply `score_mean`. No new quality store is used. Missing or equal measurements
-leave the cheaper-route rule in effect. A measured difference selects the route
-with the higher score before headroom is considered.
+Sebastian's October 31, 2026 ruling selects a measurement source per route.
+At 3 or more live outcomes, use that route's outcomes alone. Below 3 live
+outcomes, use its valid fresh card row (`completed` and `score_mean`). Without
+that row, the route is unmeasured. These field rates describe recorded jobs,
+not controlled calibration, and never promote trust.
+
+A quality difference applies only when every eligible route's used source has
+at least 3 samples. Otherwise, quality counts as equal and the cheaper live route
+wins. A measured difference selects the higher score before headroom.
 
 Decisions retain eligible routes, headroom/draw ratios (null when unavailable),
-the quality source and measurements, whether a difference applied, and the winner.
+quality measurements, whether a difference applied, and the winner.
+`quality.sampleFloor` records `minimum: 3`, `countsByRoute`, `sourcesByRoute`,
+`outcomeCountsByRoute`, and `applied`. Sources are `outcomes`, `card`, or `none`.
+Used counts match measurement rows; unmeasured routes have a count of 0.
+The quality source summary is `mixed` when routes use different sources.
+The validator checks the named sources, live counts, used counts, and floor.
+Legacy receipts retain their existing validation rules.
 
 `pickFlora` returns a static selection receipt with pool state and no spawn. Missing snapshots return `needs_pool_state`; no eligible route returns `waiting_capacity`. Jev returns `blocked_identity`. `recordOutcome` validates Flora decisions and copies their pool state into outcomes. Existing outcomes remain compatible. Live capture, pool pacing, round transitions, append-only decision writes, and provider launch into the Taura scheduler are setup step 8. No live hookup is claimed here.
 

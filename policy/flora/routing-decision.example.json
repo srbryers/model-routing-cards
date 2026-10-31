@@ -54,6 +54,14 @@
   "quality": {
     "source": "none",
     "measurements": [],
-    "measuredDifference": false
+    "measuredDifference": false,
+    "sampleFloor": {
+      "minimum": 3,
+      "countsByRoute": {
+        "sonnet": 0,
+        "sol": 0
+      },
+      "applied": true
+    }
   }
 }

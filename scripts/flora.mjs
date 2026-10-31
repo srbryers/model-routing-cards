@@ -8,6 +8,7 @@ export const profile = JSON.parse(readFileSync(new URL('../policy/flora/profile.
 export const rolePolicy = JSON.parse(readFileSync(new URL('../policy/flora/role-policy.json', import.meta.url), 'utf8'));
 export const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const need = (condition, message) => { if (!condition) throw new TypeError(message); };
+const QUALITY_SAMPLE_FLOOR = 3;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 export const canonicalRole = role => profile.aliases[role] ?? role;
 export const isFloraRole = role => Object.hasOwn(profile.roles, canonicalRole(role));
@@ -89,51 +90,101 @@ export function validateRoutingDecision(entry) {
   need(entry.headroomByDraw && entry.eligibleRoutes.every(id => Object.hasOwn(entry.headroomByDraw, id)
     && (entry.headroomByDraw[id] === null || (Number.isFinite(entry.headroomByDraw[id]) && entry.headroomByDraw[id] >= 0))), 'Decision requires headroom ratios or null');
   const quality = entry.quality;
-  need(quality && ['none', 'outcomes.jsonl:pass_rate', 'card:score_mean'].includes(quality.source)
+  need(quality && ['none', 'outcomes.jsonl:pass_rate', 'card:score_mean', 'mixed'].includes(quality.source)
     && Array.isArray(quality.measurements) && typeof quality.measuredDifference === 'boolean', 'Decision requires measured quality basis');
+  const perRoute = Object.hasOwn(quality.sampleFloor ?? {}, 'sourcesByRoute');
+  need(quality.source !== 'mixed' || perRoute, 'Mixed quality requires per-route sample floor sources');
   need(quality.source === 'none' ? quality.measurements.length === 0
-    : quality.measurements.length === entry.eligibleRoutes.length
-      && entry.eligibleRoutes.every(id => quality.measurements.filter(row => row.route === id
-        && Number.isFinite(row.score) && Number.isSafeInteger(row.samples) && row.samples > 0).length === 1), 'Decision quality measurements must cover eligible routes');
-  need(quality.measuredDifference === (entry.eligibleRoutes.length > 1
-    && new Set(quality.measurements.map(row => row.score)).size > 1), 'Decision quality difference mismatch');
+    : (perRoute || (quality.measurements.length === entry.eligibleRoutes.length
+        && entry.eligibleRoutes.every(id => quality.measurements.some(row => row.route === id))))
+      && quality.measurements.every(row => entry.eligibleRoutes.includes(row.route)
+        && Number.isFinite(row.score) && Number.isSafeInteger(row.samples) && row.samples > 0)
+      && new Set(quality.measurements.map(row => row.route)).size === quality.measurements.length,
+  'Decision quality measurements must cover eligible routes');
+  const floor = quality.sampleFloor;
+  // Receipts from before the floor may omit it only without a measured difference.
+  need(Object.hasOwn(quality, 'sampleFloor') || !quality.measuredDifference, 'Decision quality sample floor required for measured difference');
+  if (Object.hasOwn(quality, 'sampleFloor')) {
+    need(floor?.minimum === QUALITY_SAMPLE_FLOOR && floor.countsByRoute
+      && entry.eligibleRoutes.every(id => Number.isSafeInteger(floor.countsByRoute[id]) && floor.countsByRoute[id] >= 0)
+      && quality.measurements.every(row => floor.countsByRoute[row.route] === row.samples)
+      && floor.applied === entry.eligibleRoutes.some(id => floor.countsByRoute[id] < QUALITY_SAMPLE_FLOOR), 'Decision quality sample floor mismatch');
+    if (perRoute) {
+      need(floor.outcomeCountsByRoute
+        && [floor.sourcesByRoute, floor.outcomeCountsByRoute, floor.countsByRoute].every(map =>
+          Object.keys(map).length === entry.eligibleRoutes.length
+          && entry.eligibleRoutes.every(id => Object.hasOwn(map, id)))
+        && entry.eligibleRoutes.every(id => {
+        const source = floor.sourcesByRoute[id];
+        const count = floor.countsByRoute[id];
+        const liveCount = floor.outcomeCountsByRoute[id];
+        const row = quality.measurements.find(row => row.route === id);
+        return Number.isSafeInteger(liveCount) && liveCount >= 0
+          && (source === 'none' ? count === 0 && !row && liveCount < QUALITY_SAMPLE_FLOOR
+            : row?.source === source && (source === 'outcomes'
+              ? liveCount >= QUALITY_SAMPLE_FLOOR && count === liveCount
+              : source === 'card' && liveCount < QUALITY_SAMPLE_FLOOR));
+      }), 'Decision quality sample floor source mismatch');
+      need(quality.source === qualitySource(Object.values(floor.sourcesByRoute)), 'Decision quality source summary mismatch');
+    }
+    need(quality.measuredDifference === (!floor.applied && entry.eligibleRoutes.length > 1
+      && new Set(quality.measurements.map(row => row.score)).size > 1), 'Decision quality difference mismatch');
+    need(quality.source !== 'none' || (!quality.measuredDifference
+      && Object.values(floor.countsByRoute).every(count => count === 0)), 'Decision without quality source requires zero sample counts and no measured difference');
+  }
   if (quality.measuredDifference) need(quality.measurements.find(row => row.route === entry.route).score
     === Math.max(...quality.measurements.map(row => row.score)), 'Decision must select higher measured quality');
   need(entry.previousRoute == null || [config.selectedRoute, ...config.fallbacks].includes(entry.previousRoute), 'Previous route outside role allowlist');
   return entry;
 }
 
-/** Read the existing outcome log first; card rows provide controlled measurements.
+// Preserve the existing summary labels for receipts using one source.
+function qualitySource(sources) {
+  const unique = new Set(sources);
+  if (unique.size > 1) return 'mixed';
+  return { none: 'none', outcomes: 'outcomes.jsonl:pass_rate', card: 'card:score_mean' }[sources[0]];
+}
+
+/** Use live outcomes at the floor, otherwise a fresh card row for that route.
  * Field pass rates describe recorded jobs, not controlled calibration or trust. */
 function qualityRecord(role, eligible, outcomes, card, now) {
   const latest = new Map(outcomes.filter(row => nonempty(row?.decisionId)).map(row => [row.decisionId, row]));
-  const rows = eligible.map(route => {
-    const records = [...latest.values()].filter(row => canonicalRole(row.kind) === canonicalRole(role)
-      && row.route === route && ['pass', 'partial', 'fail'].includes(row.result));
-    return { route, samples: records.length, score: records.length
-      ? records.filter(row => row.result === 'pass').length / records.length : null,
-    decisionIds: records.map(row => row.decisionId) };
-  });
-  let source = 'none';
-  let measurements = [];
-  if (rows.every(row => row.samples > 0)) {
-    source = 'outcomes.jsonl:pass_rate';
-    measurements = rows;
-  } else if (card?.task === canonicalRole(role) && !isStale(card, new Date(now))
+  let validCard = false;
+  if (card?.task === canonicalRole(role) && !isStale(card, new Date(now))
     && Number.isFinite(Date.parse(card.generated)) && Date.parse(card.generated) <= Date.parse(now)) {
     try {
       assertLiveIdentity(card);
-      const measured = eligible.map(route => {
-        const row = card.models?.find(row => row.model === profile.routes[route].cardIdentity);
-        return row && { route, score: row.score_mean, samples: row.completed };
-      });
-      if (measured.every(row => row && Number.isFinite(row.score) && Number.isSafeInteger(row.samples) && row.samples > 0)) {
-        source = 'card:score_mean';
-        measurements = measured;
-      }
+      validCard = true;
     } catch { /* Quarantined card measurements never enter routing. */ }
   }
-  return { source, measurements, measuredDifference: eligible.length > 1
+  const measurements = [];
+  const countsByRoute = {};
+  const sourcesByRoute = {};
+  const outcomeCountsByRoute = {};
+  for (const route of eligible) {
+    const records = [...latest.values()].filter(row => canonicalRole(row.kind) === canonicalRole(role)
+      && row.route === route && ['pass', 'partial', 'fail'].includes(row.result));
+    outcomeCountsByRoute[route] = records.length;
+    let measurement;
+    if (records.length >= QUALITY_SAMPLE_FLOOR) {
+      measurement = { route, source: 'outcomes', samples: records.length,
+        score: records.filter(row => row.result === 'pass').length / records.length,
+        decisionIds: records.map(row => row.decisionId) };
+    } else if (validCard) {
+      const row = Array.isArray(card.models)
+        ? card.models.find(row => row?.model === profile.routes[route].cardIdentity) : null;
+      if (row && Number.isFinite(row.score_mean) && Number.isSafeInteger(row.completed) && row.completed > 0) {
+        measurement = { route, source: 'card', score: row.score_mean, samples: row.completed };
+      }
+    }
+    if (measurement) measurements.push(measurement);
+    countsByRoute[route] = measurement?.samples ?? 0;
+    sourcesByRoute[route] = measurement?.source ?? 'none';
+  }
+  const source = qualitySource(Object.values(sourcesByRoute));
+  const sampleFloor = { minimum: QUALITY_SAMPLE_FLOOR, countsByRoute, sourcesByRoute, outcomeCountsByRoute,
+    applied: eligible.some(id => countsByRoute[id] < QUALITY_SAMPLE_FLOOR) };
+  return { source, measurements, sampleFloor, measuredDifference: !sampleFloor.applied && eligible.length > 1
     && new Set(measurements.map(row => row.score)).size > 1 };
 }
 
