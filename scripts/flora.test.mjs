@@ -139,7 +139,9 @@ for (const [sonnet, sol, expected] of [[2, 5, 'sol'], [3, 3, 'sonnet'], [3, 2, '
       ({ decisionId: `${route}-${i}`, kind: input.kind, route, result: route === 'sonnet' ? 'pass' : 'fail' })));
     const d = pickFlora(input, { id: 'd', now: at, outcomes });
     assert.equal(d.route, expected);
-    assert.deepEqual(d.quality.sampleFloor, { minimum: 3, countsByRoute: sol === 0 ? { sonnet: 0, sol: 0 } : { sonnet, sol }, applied: sonnet < 3 || sol < 3 });
+    assert.deepEqual(d.quality.sampleFloor, { minimum: 3, countsByRoute: { sonnet: sonnet >= 3 ? sonnet : 0, sol: sol >= 3 ? sol : 0 },
+      sourcesByRoute: { sonnet: sonnet >= 3 ? 'outcomes' : 'none', sol: sol >= 3 ? 'outcomes' : 'none' },
+      outcomeCountsByRoute: { sonnet, sol }, applied: sonnet < 3 || sol < 3 });
     assert.equal(d.quality.measuredDifference, sonnet >= 3 && sol >= 3);
     assert.doesNotThrow(() => validateRoutingDecision(d));
     for (const mutate of [d => d.quality.sampleFloor.applied = !d.quality.sampleFloor.applied,
@@ -171,6 +173,74 @@ test('existing card measured rows supply quality, but stale or incomplete cards 
   }
   assert.equal(selectFloraRoute({ ...args, card: { ...card, generated: '2025-01-01' } }).route, 'sol');
   assert.equal(selectFloraRoute({ ...args, card: { ...card, models: card.models.slice(0, 1) } }).route, 'sol');
+});
+
+for (const [sonnet, sol, expected, sources] of [
+  [1, 1, 'sonnet', { sonnet: 'card', sol: 'card' }],
+  [3, 1, 'sol', { sonnet: 'outcomes', sol: 'card' }],
+  [1, 3, 'sol', { sonnet: 'card', sol: 'outcomes' }],
+  [3, 3, 'sol', { sonnet: 'outcomes', sol: 'outcomes' }],
+]) {
+  test(`card fallback per route: ${sonnet} vs ${sol} live outcomes`, () => {
+    const kind = 'flora-ui-builder';
+    const card = { task: kind, generated: at, expires_days: 30, models: [
+      { model: profile.routes.sonnet.cardIdentity, score_mean: 0.9, completed: 10 },
+      { model: profile.routes.sol.cardIdentity, score_mean: 0.5, completed: 10 },
+    ] };
+    const outcomes = Object.entries({ sonnet, sol }).flatMap(([route, count]) => Array.from({ length: count }, (_, i) =>
+      ({ decisionId: `${route}-${i}`, kind, route, result: route === 'sol' ? 'pass' : 'fail' })));
+    const input = { kind, poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
+      headroomByDraw: { sonnet: 1, sol: 4 }, jobId: 'job', round: 1, boundary: 'dispatch' };
+    const d = pickFlora(input, { id: 'd', now: at, outcomes, cards: { [kind]: card } });
+    assert.equal(d.route, expected);
+    assert.equal(d.quality.measuredDifference, true);
+    assert.deepEqual(d.quality.sampleFloor.sourcesByRoute, sources);
+    assert.deepEqual(d.quality.sampleFloor.outcomeCountsByRoute, { sonnet, sol });
+    assert.deepEqual(d.quality.sampleFloor.countsByRoute, {
+      sonnet: sonnet >= 3 ? sonnet : 10, sol: sol >= 3 ? sol : 10,
+    });
+    assert.doesNotThrow(() => validateRoutingDecision(d));
+    for (const mutate of [
+      d => d.quality.sampleFloor.sourcesByRoute.sonnet = 'invalid',
+      d => delete d.quality.sampleFloor.sourcesByRoute.sol,
+      d => d.quality.sampleFloor.countsByRoute.sol++,
+      d => d.quality.sampleFloor.outcomeCountsByRoute.sol = sol >= 3 ? 1 : 3,
+      d => delete d.quality.sampleFloor.outcomeCountsByRoute,
+      d => d.quality.measurements[0].source = 'none',
+      d => d.quality.source = 'none',
+    ]) {
+      const broken = structuredClone(d); mutate(broken);
+      assert.throws(() => validateRoutingDecision(broken));
+    }
+    if (sonnet === 3 && sol === 3) {
+      const noCard = pickFlora(input, { id: 'd', now: at, outcomes });
+      assert.deepEqual(d.quality, noCard.quality);
+    }
+  });
+}
+
+test('below-floor routes without valid card rows are unmeasured and cheaper wins', () => {
+  const kind = 'flora-ui-builder';
+  const card = { task: kind, generated: at, expires_days: 30, models: [
+    { model: profile.routes.sol.cardIdentity, score_mean: 0.9, completed: 10 },
+  ] };
+  const outcomes = ['sonnet', 'sol'].flatMap(route => Array.from({ length: route === 'sol' ? 3 : 1 }, (_, i) =>
+    ({ decisionId: `${route}-${i}`, kind, route, result: route === 'sol' ? 'pass' : 'fail' })));
+  const input = { kind, poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
+    headroomByDraw: { sonnet: 4, sol: 1 }, jobId: 'job', round: 1, boundary: 'dispatch' };
+  for (const invalid of [undefined, card, { ...card, generated: '2025-01-01' },
+    { ...card, generated: '2027-01-01' }, { ...card, task: 'flora-general-builder' },
+    { ...card, models: [{ model: profile.routes.sonnet.cardIdentity, completed: 10, score_mean: null }] },
+    { ...card, models: [{ model: profile.routes.sonnet.cardIdentity, completed: 1.5, score_mean: 1 }] },
+    { ...card, models: [{ model: 'openai/gpt-6-luna', completed: 10, score_mean: 1 }] },
+  ]) {
+    const d = pickFlora(input, { id: 'd', now: at, outcomes, cards: { [kind]: invalid } });
+    assert.equal(d.route, 'sonnet');
+    assert.equal(d.quality.measuredDifference, false);
+    assert.deepEqual(d.quality.sampleFloor.countsByRoute, { sonnet: 0, sol: 3 });
+    assert.deepEqual(d.quality.sampleFloor.sourcesByRoute, { sonnet: 'none', sol: 'outcomes' });
+    assert.doesNotThrow(() => validateRoutingDecision(d));
+  }
 });
 
 test('dated routing example rejects stale binding and current quality receipts validate', () => {
