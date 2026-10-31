@@ -136,6 +136,18 @@ test('CLI ignores a card with the wrong task id and explains it', async t => {
   await runPick(['--kind', 'multi-step-coding', '--cards-dir', cardsDir, '--no-quota'], h);
   assert.equal(last(h).basis, 'trial'); assert.match(last(h).why.join(' '), /card task mismatch/);
 });
+test('CLI quarantines a stale Luna card for a non-Flora repo', async t => {
+  const h = harness(t); const cardsDir = join(h.stateDir, 'cards');
+  mkdirSync(cardsDir, { recursive: true });
+  writeFileSync(join(cardsDir, 'quick-edit.card.json'), JSON.stringify({
+    task: 'quick-edit', trust: 'CALIBRATED', generated: '2026-10-04', recommend: 'openai/gpt-6-luna',
+  }));
+  assert.equal(h.repoKey(), 'someone/repo');
+  assert.equal(await main(['pick', '--kind', 'quick-edit', '--cards-dir', cardsDir, '--no-quota', '--json'], h), 0);
+  const d = last(h);
+  assert.ok(!d.basis.startsWith('card'));
+  assert.ok(d.why.includes('card quick-edit.card.json stale Luna identity quarantined and ignored'));
+});
 test('CLI reads a brief-file from disk without logging its text', async t => {
   const h = harness(t); const file = join(h.stateDir, 'brief.txt'); const brief = 'A private brief read from a file';
   writeFileSync(file, brief);

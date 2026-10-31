@@ -19,7 +19,8 @@ export function findCard(file, { cardsDir, repoDir, env = process.env, readFile 
     let card;
     try { card = JSON.parse(text); }
     catch { return { why: [...why, `card ${file} malformed, ignored`] }; }
-    assertLiveIdentity(card);
+    try { assertLiveIdentity(card); }
+    catch { return { why: [...why, `card ${file} stale Luna identity quarantined and ignored`] }; }
     const expected = file.slice(0, -'.card.json'.length);
     if (card?.task !== expected) return { why: [...why, `card task mismatch: expected ${expected}, ignored`] };
     return { card, why };
