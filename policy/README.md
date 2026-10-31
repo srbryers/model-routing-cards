@@ -32,6 +32,25 @@ its open questions. Benchmark evidence does not change policy by itself.
 | `machines` | `default` names the preferred machine; other entries are machine IDs with descriptions. |
 | `repos` | Public repo rules keyed by lowercase GitHub `owner/name`; each has `rules` and optional `machines`. Empty in this repo. Your own rules go in the [local overlay](#local-overlay). |
 
+## Latest Model Aliases
+
+Default standing model picks to the latest alias accepted by their provider path. On Claude Code, the latest aliases are the bare names `opus` and `sonnet`. On 2026-10-31, the coordinator's subscription probes resolved them to `claude-opus-5-5` and `claude-sonnet-5-5`, respectively. The API returned 404 for both `opus@latest` and `sonnet@latest`. See [the run record](../RESULT-LATEST.md) for the probe results.
+
+| Route | Exception Reason |
+|---|---|
+| `astra`, `sol`, `gpt-5.5`, `terra` | Codex CLI 0.160.0 and its cached account catalogue offer fixed IDs, with no latest tags. `gpt-5.5` is absent from that cache; no replacement is inferred. |
+| `luna` | Keep `gpt-5.6-luna` and `openai/gpt-5.6-luna` for the exact-identity mismatch tests and stale-identity guard. |
+| `muse` | The installed Muse profile resolves `muse-spark-1.3`; no latest alias is documented on the ACP path. No latest form was established. |
+| `pi-local` | The model comes from local configuration; there is no shared model pin to convert. |
+| `fw-kimi-k3`, `fw-glm-5p3`, `fw-deepseek-v4p1-flash`, `fw-minimax-m3`, `fw-qwen3p8-max`, `fw-gpt-oss-120b` | Spend-gated measurement candidates with exact Fireworks identities; no latest form was established on Pi. |
+| `gemini-pro`, `gemini-flash`, `gemini-flash-lite` | Spend-gated ACP/Vertex candidates; no latest form was established on that path. |
+| `or-gemini-flash`, `or-gemini-pro` | Spend-gated Pi/OpenRouter candidates, disabled for credit exhaustion; no latest form was established. |
+| `gemini-copy`, `openai-image` | Spend-gated external instructions; neither supplies standing worker spawn arguments. |
+| Flora `muse-wonder` | The Muse platform orchestrator has a strict identity pin in `scripts/flora.mjs`; it is separate from generic Muse Spark. |
+| Flora `jev` | Already `jev-latest`; retain the alias and semantic identity hold. |
+
+`cardModels`, Flora `cardIdentity`, and task measurement candidates keep their exact model identities. They match recorded card rows, not CLI selection tags. A latest tag does not relabel past measurements or establish current calibration. Flora retains `flora-pilot` scope and its role, fallback, and authority limits.
+
 ## Change the policy
 
 1. Edit the JSON and update `updated`. Keep kind IDs stable; each description is

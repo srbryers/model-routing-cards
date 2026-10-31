@@ -2,6 +2,12 @@
 
 Sebastian's October 30, 2026 SETUP-1B decision replaces Flora UI implementation on Opus at extra-high effort with Sonnet and Sol backup. Opus retains concepts, refinement, and UI plans. This profile applies only to the Flora pilot.
 
+## Latest Model Aliases
+
+Default standing model picks to the latest alias accepted by their provider path. On Claude Code, the latest aliases are the bare names `opus` and `sonnet`. On 2026-10-31, the coordinator's subscription probes resolved them to `claude-opus-5-5` and `claude-sonnet-5-5`, respectively. The API returned 404 for both `opus@latest` and `sonnet@latest`. See [the run record](../../RESULT-LATEST.md) for the probe results.
+
+Astra and Sol retain their fixed Codex account IDs because the local catalogue offers no latest tags. Luna retains `gpt-5.6-luna` and `openai/gpt-5.6-luna` for the exact-identity tests and stale-identity guard. Muse Wonder retains its strict platform identity pin in `scripts/flora.mjs`. Jev already uses `jev-latest` and keeps its identity hold. Card identities remain exact measured-model keys. See [the run record](../../RESULT-LATEST.md) for all routes and evidence limits.
+
 ## Cards
 
 The eleven versioned cards use the existing `buildCard` fields with `version`, policy/profile hashes, `selection_basis`, and `modelConfig`. No measured model rows or recommendation are invented. All cards remain UNCALIBRATED with 30-day expiry. Static selection uses `approved_profile`; outcomes cannot promote trust.
@@ -91,7 +97,7 @@ the quality source and measurements, whether a difference applied, and the winne
 ## Offline Checks
 
 - `npm test` checks the live card set first, then runs the repository tests.
-- `node scripts/flora.check.mjs --decision policy/flora/routing-decision.example.json` checks a decision and its pool snapshot.
+- The dated `routing-decision.example.json` retains its earlier profile hash. Checking it with `node scripts/flora.check.mjs --decision policy/flora/routing-decision.example.json` must reject the stale binding. Tests bind an in-memory copy to the current profile before checking its shape.
 - `npm run check:flora` emits card, profile, and policy hashes with zero provider calls.
 - `node scripts/flora.check.mjs scripts/fixtures/flora-stale-luna.card.json` must exit 1 before provider calls.
 - Historical measurements and the dated pre-overlay policy fixture remain untouched. Old Luna receipts must be quarantined, never relabelled as evidence for the repaired identity.

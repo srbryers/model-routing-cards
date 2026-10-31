@@ -27,7 +27,7 @@ test('default policy validates, preserves all 23 kinds, and matches the trust ga
   assert.equal(Object.keys(policy.kinds).length, 23);
   assert.equal(policy.cards.maxAgeDays, TRUST.STALE_DAYS);
   assert.equal(policy.policyVersion, 1);
-  assert.equal(policy.updated, '2026-10-04');
+  assert.equal(policy.updated, '2026-10-31');
   assert.equal(policy.quota.overridesBeatHardStops, false);
   assert.deepEqual(policy.quota.thresholds.map(r => [r.pool, r.window, r.usedPercentAbove]),
     [['claude', 'five-hour', 70], ['claude', 'five-hour', 80], ['codex', 'weekly', 85]]);
@@ -713,4 +713,19 @@ test('coach-app visual work uses Gemini while global visual work stays Opus and 
   assert.equal(copy.route, 'gemini-copy'); assert.equal(copy.type, 'external');
   assert.match(copy.note, /gemini-flash.*content_draft.py.*CLAUDE.md/);
   assert.equal(policy.routes['gemini-visual'], undefined);
+});
+
+test('Claude latest aliases preserve provider, pool and vendor restrictions', () => {
+  assert.equal(validatePolicy(policy).ok, true);
+  for (const model of ['sonnet', 'opus']) {
+    const spoof = copy();
+    Object.assign(spoof.routes.opus, { model, provider: 'codex', pool: 'codex', vendor: 'openai' });
+    assert.equal(validatePolicy(spoof).ok, false, 'Claude alias cannot pose as Codex');
+    for (const [field, value] of [['provider', 'pi'], ['pool', 'codex'], ['vendor', 'openai'], ['model', model + '-typo'], ['model', model + '@latest']]) {
+      const p = copy();
+      p.routes.opus.model = model;
+      p.routes.opus[field] = value;
+      assert.equal(validatePolicy(p).ok, false, `${model}: ${field}`);
+    }
+  }
 });
