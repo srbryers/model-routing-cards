@@ -47,6 +47,10 @@
     "astra": {
       "provider": "codex",
       "model": "gpt-6-astra",
+      "modelIntent": {
+        "family": "astra",
+        "latest": true
+      },
       "machines": [
         "mac-studio",
         "pc"
@@ -61,6 +65,10 @@
     "sol": {
       "provider": "codex",
       "model": "gpt-6.1-sol",
+      "modelIntent": {
+        "family": "sol",
+        "latest": true
+      },
       "machines": [
         "mac-studio",
         "pc"
@@ -142,6 +150,10 @@
       "type": "bb",
       "provider": "codex",
       "model": "gpt-5.6-terra",
+      "modelIntent": {
+        "family": "terra",
+        "latest": true
+      },
       "machines": [
         "mac-studio",
         "pc"

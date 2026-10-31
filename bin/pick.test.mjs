@@ -360,3 +360,31 @@ test('CLI standing Claude picks emit latest model aliases in spawn data', async 
     assert.equal(argv[argv.indexOf('--model') + 1], model);
   }
 });
+
+test('CLI injected catalogue resolves terra spawn argv and logs only selected identity', async t => {
+  const h = harness(t, {
+    loadOverride: () => ({ policyVersion: 1, rules: [{ kinds: ['*'], route: 'terra', source: 'fixture', why: 'test' }] }),
+    loadCatalogue: () => ({ models: [{ slug: 'gpt-5.6-terra' }, { slug: 'gpt-6.1-terra' }, { slug: 'gpt-99-luna' }] }),
+  });
+  assert.equal(await runPick(['--kind', 'quick-edit', '--no-quota', '--json'], h), 0);
+  const decision = last(h);
+  assert.equal(decision.model, 'gpt-6.1-terra');
+  assert.ok(decision.spawn.argv.includes('gpt-6.1-terra'));
+  assert.equal(decision.modelResolution.source, 'catalogue');
+  const log = readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8');
+  assert.ok(!log.includes('gpt-99-luna'));
+  assert.deepEqual(JSON.parse(log).modelResolution, decision.modelResolution);
+});
+test('CLI unreadable catalogue falls back to standing terra in spawn argv', async t => {
+  const h = harness(t, {
+    loadOverride: () => ({ policyVersion: 1, rules: [{ kinds: ['*'], route: 'terra', source: 'fixture', why: 'test' }] }),
+    cataloguePath: '/synthetic/unreadable',
+    readCatalogue: path => { assert.equal(path, '/synthetic/unreadable'); throw Error('unreadable'); },
+  });
+  assert.equal(await runPick(['--kind', 'quick-edit', '--no-quota', '--json'], h), 0);
+  const decision = last(h);
+  assert.equal(decision.model, 'gpt-5.6-terra');
+  assert.ok(decision.spawn.argv.includes('gpt-5.6-terra'));
+  assert.equal(decision.modelResolution.source, 'fallback');
+  assert.equal(decision.modelResolution.fallback, true);
+});

@@ -23,7 +23,8 @@ Default standing model picks to the latest alias accepted by their provider path
 
 | Route | Exception Reason |
 |---|---|
-| `astra`, `sol`, `gpt-5.5`, `terra` | Codex CLI 0.160.0 and its cached account catalogue offer fixed IDs, with no latest tags. `gpt-5.5` is absent from that cache; no replacement is inferred. |
+| `terra`, `sol`, `astra` | Policy records latest family intent. The router resolves it from the Codex catalogue at pick time, with the standing ID as fallback. |
+| `gpt-5.5` | No family suffix; absent from the Codex cache. A family cannot be resolved without inventing an ID. |
 | `luna` | Keep `gpt-5.6-luna` and `openai/gpt-5.6-luna` for the exact-identity mismatch tests and stale-identity guard. |
 | `muse` | The installed Muse profile resolves `muse-spark-1.3`; no latest alias is documented on the ACP path. No latest form was established. |
 | `pi-local` | The model comes from local configuration; there is no shared model pin to convert. |
@@ -35,6 +36,26 @@ Default standing model picks to the latest alias accepted by their provider path
 | Flora `jev` | Already `jev-latest`; retain the alias and semantic identity hold. |
 
 `cardModels`, Flora `cardIdentity`, and task measurement candidates keep their exact model identities. They match recorded card rows, not CLI selection tags. A latest tag does not relabel past measurements or establish current calibration. Flora retains `flora-pilot` scope and its role, fallback, and authority limits.
+
+## Codex Latest Resolution
+
+Regular picks for Terra, Sol, and Astra read latest intent from policy. The CLI
+loads `~/.codex/models_cache.json`. The pure resolver selects the highest numeric
+version ending in the family suffix. Equal versions retain the standing ID when
+present; otherwise catalogue order decides. Unparseable slugs are ignored.
+
+The policy model remains the standing fallback. A missing, unreadable, malformed,
+or family-empty catalogue returns that ID with `source: "fallback"` and
+`fallback: true`. Luna is explicitly excluded.
+
+A decision's `model` is the resolved spawn ID. Its `modelResolution` records the
+family, latest intent, standing ID, resolved ID, source, and fallback flag.
+A changed ID also appears in `why`. Outcomes copy the model and resolution so
+recorded results identify the model that ran.
+
+Flora picks retain their separate profile validation and selection path. This
+pass does not resolve Flora picks; Sol and Astra match their standing IDs in the
+current catalogue. Measurement card identities remain exact.
 
 ## Flora Pilot
 

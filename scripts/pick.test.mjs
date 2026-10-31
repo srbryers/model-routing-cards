@@ -695,3 +695,59 @@ test('standing Claude picks use latest aliases while measured card identities st
     assert.deepEqual(policy.routes[route].cardModels, [`anthropic/claude-${route}-5.5`]);
   }
 });
+
+// Synthetic catalogue only; no account cache or provider calls in these tests.
+const latestCatalogue = { models: ['gpt-5.6-terra', 'gpt-6.1-terra', 'gpt-5.6-sol',
+  'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-99-luna'].map(slug => ({ slug })) };
+const latestPick = (route, catalogue = latestCatalogue) => choose({ kind: 'quick-edit' }, {
+  override: override(route), catalogue, quota: null,
+});
+test('terra pick resolves latest and records intent standing identity and changed ID', () => {
+  const decision = latestPick('terra');
+  assert.equal(decision.route, 'terra');
+  assert.equal(decision.model, 'gpt-6.1-terra');
+  assert.deepEqual(decision.modelResolution, { family: 'terra', latest: true,
+    standingModel: 'gpt-5.6-terra', resolvedModel: 'gpt-6.1-terra', source: 'catalogue', fallback: false });
+  assert.match(decision.why.join(' '), /gpt-5.6-terra -> gpt-6.1-terra/);
+});
+test('terra pick keeps standing identity and marks fallback for absent or empty catalogue', () => {
+  for (const catalogue of [null, { models: [] }]) {
+    const decision = latestPick('terra', catalogue);
+    assert.equal(decision.model, 'gpt-5.6-terra');
+    assert.equal(decision.modelResolution.source, 'fallback');
+    assert.equal(decision.modelResolution.fallback, true);
+  }
+});
+test('sol and astra picks resolve to standing identities in synthetic current catalogue', () => {
+  for (const [route, model] of [['sol', 'gpt-6.1-sol'], ['astra', 'gpt-6-astra']]) {
+    const decision = latestPick(route);
+    assert.equal(decision.model, model);
+    assert.equal(decision.modelResolution.standingModel, model);
+    assert.equal(decision.modelResolution.resolvedModel, model);
+    assert.equal(decision.modelResolution.source, 'catalogue');
+  }
+});
+test('luna pick never resolves even with newer synthetic catalogue', () => {
+  const decision = latestPick('luna');
+  assert.equal(decision.model, 'gpt-5.6-luna');
+  assert.equal(Object.hasOwn(decision, 'modelResolution'), false);
+});
+test('Claude sonnet and opus picks retain native aliases without resolution', () => {
+  for (const route of ['sonnet', 'opus']) {
+    const decision = latestPick(route);
+    assert.equal(decision.model, route);
+    assert.equal(Object.hasOwn(decision, 'modelResolution'), false);
+  }
+});
+test('resolved outcome retains exact model and resolution from decision', async t => {
+  const { recordOutcome } = await import('./outcomes.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'latest-outcome-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const decision = latestPick('terra');
+  logDecision(dir, decision);
+  const outcome = await recordOutcome({ decisionId: decision.id, result: 'pass' }, { stateDir: dir, now });
+  assert.equal(outcome.model, decision.model);
+  assert.deepEqual(outcome.modelResolution, decision.modelResolution);
+  const persisted = JSON.parse(readFileSync(join(dir, 'outcomes.jsonl'), 'utf8'));
+  assert.deepEqual(persisted, outcome);
+});

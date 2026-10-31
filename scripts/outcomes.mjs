@@ -98,6 +98,7 @@ export async function recordOutcome({ decisionId, result, gates = {}, failuresBe
   }
   const record = { decisionId, at: new Date(now).toISOString(), kind: decision.kind,
     route: decision.route, basis: decision.basis, repo: decision.repo ?? null,
+    ...(decision.modelResolution ? { model: decision.model, modelResolution: decision.modelResolution } : {}),
     result, gates, failuresBefore, ...(isFloraRole(decision.kind) ? { poolState: decision.poolState, routingDecisionId: decision.id, costUsd: null, costSource: 'unknown' } : {}), ...(jev ? { jev } : {}), notes };
   await withStateLock(stateDir, () => {
     appendStateLog(stateDir, 'outcomes.jsonl', record);
