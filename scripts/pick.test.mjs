@@ -686,3 +686,12 @@ test('kind descriptions carry the precedence Jev needs', () => {
   assert.match(text('simple-bug-fix'), /known/); assert.match(text('simple-bug-fix'), /hard-bug-fix/);
   assert.match(text('hard-bug-fix'), /even if the symptom reproduces/);
 });
+
+test('standing Claude picks use latest aliases while measured card identities stay exact', () => {
+  for (const [route, model] of [['sonnet', 'sonnet'], ['opus', 'opus']]) {
+    const d = choose({}, { override: override(route) });
+    assert.equal(d.route, route);
+    assert.equal(d.model, model);
+    assert.deepEqual(policy.routes[route].cardModels, [`anthropic/claude-${route}-5.5`]);
+  }
+});

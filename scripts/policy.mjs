@@ -18,6 +18,7 @@ const KIND_IDS = [
 const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const has = (o, k) => object(o) && Object.hasOwn(o, k);
 const nonempty = (v) => typeof v === 'string' && v.trim().length > 0;
+const claudeModel = model => /^claude/i.test(model ?? '') || /^(sonnet|opus)$/.test(model ?? '');
 const sonnet = (id, route) => id === 'sonnet' || /sonnet/i.test(route?.model ?? '');
 const muse = (id, route) => id === 'muse' || route?.provider === 'acp-muse';
 
@@ -112,10 +113,10 @@ export function validatePolicy(policy) {
     for (const [field, value] of [['id', id], ['model', route?.model], ['provider', route?.provider]]) {
       check(!/contributor/i.test(value ?? ''), `${path}.${field}: contributor routes are forbidden`);
     }
-    if (route?.vendor === 'anthropic' || /^claude/i.test(route?.model ?? '')
+    if (route?.vendor === 'anthropic' || claudeModel(route?.model)
       || route?.provider === 'claude-code' || route?.pool === 'claude') {
       check(route?.provider === 'claude-code' && route?.pool === 'claude'
-        && route?.vendor === 'anthropic' && /^claude/i.test(route?.model ?? ''),
+        && route?.vendor === 'anthropic' && claudeModel(route?.model),
       `${path}: Claude requires a claude model, provider claude-code, pool claude and vendor anthropic`);
     }
     if (route?.provider === 'codex' || route?.pool === 'codex') {

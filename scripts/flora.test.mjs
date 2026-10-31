@@ -146,9 +146,10 @@ test('existing card measured rows supply quality, but stale or incomplete cards 
   assert.equal(selectFloraRoute({ ...args, card: { ...card, models: card.models.slice(0, 1) } }).route, 'sol');
 });
 
-test('routing example validates and incomplete quality receipts fail', () => {
+test('dated routing example rejects stale binding and current quality receipts validate', () => {
   const example = JSON.parse(readFileSync(new URL('../policy/flora/routing-decision.example.json', import.meta.url), 'utf8'));
-  assert.doesNotThrow(() => validateRoutingDecision(example));
+  assert.throws(() => validateRoutingDecision(example), /Decision policy or profile hash mismatch/);
+  assert.doesNotThrow(() => validateRoutingDecision({ ...example, policyHash: hash(rolePolicy), profileHash: hash(profile) }));
   for (const mutate of [d => delete d.eligibleRoutes, d => delete d.quality,
     d => d.quality.measuredDifference = true, d => delete d.headroomByDraw.sol]) {
     const d = decision(); mutate(d); assert.throws(() => validateRoutingDecision(d));
@@ -240,4 +241,16 @@ test('persisted Flora outcomes reach selection through the existing state log re
   assert.equal(selected.route, 'sonnet');
   assert.equal(selected.quality.measuredDifference, true);
   assert.doesNotThrow(() => validateRoutingDecision(selected));
+});
+
+test('Flora Claude seats use latest aliases and preserve exact card identities', () => {
+  for (const [role, route] of [['flora-designer', 'opus'], ['flora-ui-builder', 'sonnet'], ['flora-review-claude', 'sonnet'], ['flora-ui-elevation', 'sonnet']]) {
+    assert.equal(profile.routes[route].model, route);
+    assert.equal(profile.routes[route].cardIdentity, `anthropic/claude-${route}-5.5`);
+    const d = pickFlora({ kind: role, poolState: snapshot, availableRoutes: [route], jobId: 'job', round: 1, boundary: 'dispatch' }, { id: 'decision', now: at });
+    assert.equal(d.route, route);
+    assert.equal(d.status, 'awaiting_scheduler');
+    assert.equal(d.spawn, null);
+  }
+  assert.equal(validateFloraCards().cards, 11);
 });

@@ -222,7 +222,7 @@ test('parseMuseOutput reads the terminal event, not the deltas', () => {
 
 test('claude builds a tool-free argv with the prompt on stdin', async () => {
   const spawn = fakeSpawn(ok(fixture('claude-print-ok.json')));
-  const spec = parseModel({ provider: 'claude', model: 'claude-sonnet-5-5', reasoning: 'high' });
+  const spec = parseModel({ provider: 'claude', model: 'sonnet', reasoning: 'high' });
   const res = await call(spec, { prompt: PROMPT, spawn });
 
   const [{ cmd, args, opts }] = spawn.calls;
@@ -230,7 +230,7 @@ test('claude builds a tool-free argv with the prompt on stdin', async () => {
   const flag = (n) => args[args.indexOf(n) + 1];
   assert.ok(args.includes('--print'));
   assert.equal(flag('--output-format'), 'json');
-  assert.equal(flag('--model'), 'claude-sonnet-5-5');
+  assert.equal(flag('--model'), 'sonnet');
   assert.equal(flag('--effort'), 'high');
   /* `--tools ""` is the empty list: no built-in tool at all. */
   assert.equal(flag('--tools'), '');
@@ -754,4 +754,14 @@ echo '{"is_error":false,"result":"SYNTHETIC_PRIVATE_OUTPUT","stop_reason":"end_t
   assert.equal(receipt.text, undefined);
   assert.ok(receipt.output_sha256, 'the hash is kept as the identity');
   assert.ok(!out.stdout.includes('SYNTHETIC_PRIVATE_OUTPUT'));
+});
+
+test('Claude latest aliases pass literally to the subscription CLI', async () => {
+  for (const model of ['sonnet', 'opus']) {
+    const spawn = fakeSpawn(ok(fixture('claude-print-ok.json')));
+    const res = await call(parseModel({ provider: 'claude', model }), { prompt: PROMPT, spawn });
+    const { args } = spawn.calls[0];
+    assert.equal(args[args.indexOf('--model') + 1], model);
+    assert.equal(res.state, 'completed');
+  }
 });

@@ -350,3 +350,13 @@ test('the long test-plus-fix brief reaches the classifier whole, and the policy 
   assert.deepEqual(d.classifier.top.slice(0, 2).map(v => v.kind), ['hard-bug-fix', 'multi-step-coding']);
   assert.ok(!readFileSync(join(h.stateDir, 'decisions.jsonl'), 'utf8').includes('regression tests'));
 });
+
+test('CLI standing Claude picks emit latest model aliases in spawn data', async t => {
+  for (const [kind, model] of [['multi-step-coding', 'sonnet'], ['architecture', 'opus']]) {
+    const h = harness(t);
+    assert.equal(await runPick(['--kind', kind, '--no-quota', '--json'], h), 0);
+    assert.equal(last(h).model, model);
+    const argv = last(h).spawn.argv;
+    assert.equal(argv[argv.indexOf('--model') + 1], model);
+  }
+});

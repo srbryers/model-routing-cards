@@ -10,12 +10,31 @@ says otherwise.
 
 > ⚠⚠ **ONE INTERPRETATION NEEDS CONFIRMATION.** Sebastian said both "Opus 5.5
 > on extra high for most tasks" and "Spark as the everyday builder". This file
-> encodes: **Muse Spark by default; Opus 5.5 at extra-high effort for the
+> encodes: **Muse Spark by default; `opus` at extra-high effort for the
 > demanding categories below.** If "most tasks" meant Opus should be the default,
 > the Default column flips and Spark becomes the cheap option for small work.
 
 > ⚠ **NOTHING HERE IS MEASURED YET.** Every card is `UNCALIBRATED`. The choices
 > below are starting points that the cards exist to confirm or overturn.
+
+## Latest Model Aliases
+
+Default standing model picks to the latest alias accepted by their provider path. On Claude Code, the latest aliases are the bare names `opus` and `sonnet`. On 2026-10-31, the coordinator's subscription probes resolved them to `claude-opus-5-5` and `claude-sonnet-5-5`, respectively. The API returned 404 for both `opus@latest` and `sonnet@latest`. See [the run record](RESULT-LATEST.md) for the probe results.
+
+| Route | Exception Reason |
+|---|---|
+| `astra`, `sol`, `gpt-5.5`, `terra` | Codex CLI 0.160.0 and its cached account catalogue offer fixed IDs, with no latest tags. `gpt-5.5` is absent from that cache; no replacement is inferred. |
+| `luna` | Keep `gpt-5.6-luna` and `openai/gpt-5.6-luna` for the exact-identity mismatch tests and stale-identity guard. |
+| `muse` | The installed Muse profile resolves `muse-spark-1.3`; no latest alias is documented on the ACP path. No latest form was established. |
+| `pi-local` | The model comes from local configuration; there is no shared model pin to convert. |
+| `fw-kimi-k3`, `fw-glm-5p3`, `fw-deepseek-v4p1-flash`, `fw-minimax-m3`, `fw-qwen3p8-max`, `fw-gpt-oss-120b` | Spend-gated measurement candidates with exact Fireworks identities; no latest form was established on Pi. |
+| `gemini-pro`, `gemini-flash`, `gemini-flash-lite` | Spend-gated ACP/Vertex candidates; no latest form was established on that path. |
+| `or-gemini-flash`, `or-gemini-pro` | Spend-gated Pi/OpenRouter candidates, disabled for credit exhaustion; no latest form was established. |
+| `gemini-copy`, `openai-image` | Spend-gated external instructions; neither supplies standing worker spawn arguments. |
+| Flora `muse-wonder` | The Muse platform orchestrator has a strict identity pin in `scripts/flora.mjs`; it is separate from generic Muse Spark. |
+| Flora `jev` | Already `jev-latest`; retain the alias and semantic identity hold. |
+
+`cardModels`, Flora `cardIdentity`, and task measurement candidates keep their exact model identities. They match recorded card rows, not CLI selection tags. A latest tag does not relabel past measurements or establish current calibration. Flora retains `flora-pilot` scope and its role, fallback, and authority limits.
 
 ## Flora Pilot
 
@@ -28,14 +47,14 @@ The [Flora profile](policy/flora/README.md) records approved routes, role policy
 | Work type | Default | Also measured | Card | Card status |
 |---|---|---|---|---|
 | Everyday building | **Muse Spark** | Opus 5.5 | `tasks/implementation.mjs` | `UNCALIBRATED` |
-| Demanding work | **Opus 5.5, extra-high effort** | None | none yet | None |
-| Flora UI implementation | **Sonnet 5.5; Sol backup** | No quality comparison yet | `flora-ui-builder` | `UNCALIBRATED` |
-| Flora concepts, refinement, UI plans | **Opus 5.5, provider default effort** | No automatic fallback | `flora-designer` | `UNCALIBRATED` |
-| Other projects: UI work | **Opus 5.5, extra-high effort** | None | none yet | None |
-| iOS work | **Opus 5.5, extra-high effort** | None | none yet | None |
-| Architectural decisions | **Opus 5.5, extra-high effort** | None | none yet | None |
-| Recovery after repeated failures | **Opus 5.5, extra-high effort** | None | none yet | None |
-| Bug fixes | candidates: **Sonnet 5.5, GPT-5.6 Luna** | None | `tasks/bug-fix.mjs` | `UNCALIBRATED` |
+| Demanding work | **`opus`, extra-high effort** | None | none yet | None |
+| Flora UI implementation | **`sonnet`; Sol backup** | No quality comparison yet | `flora-ui-builder` | `UNCALIBRATED` |
+| Flora concepts, refinement, UI plans | **`opus`, provider default effort** | No automatic fallback | `flora-designer` | `UNCALIBRATED` |
+| Other projects: UI work | **`opus`, extra-high effort** | None | none yet | None |
+| iOS work | **`opus`, extra-high effort** | None | none yet | None |
+| Architectural decisions | **`opus`, extra-high effort** | None | none yet | None |
+| Recovery after repeated failures | **`opus`, extra-high effort** | None | none yet | None |
+| Bug fixes | candidates: **`sonnet`, GPT-5.6 Luna** | None | `tasks/bug-fix.mjs` | `UNCALIBRATED` |
 | Code review | rotate candidates (see below) | Opus 5.5, Sonnet 5.5, DeepSeek V4 Pro | `tasks/review.mjs` | `UNCALIBRATED` |
 | Quick, well-scoped edits | **Muse Spark** (everyday builder) | GPT-5.6 Luna | `tasks/quick-edit.mjs` | `UNCALIBRATED` |
 | Semantic judgement in scoring | **Jev** | None | `scripts/jev.check.mjs` | not run on these tasks |
