@@ -10,7 +10,7 @@ import { pick } from './pick.mjs';
 import { loadPolicy, validatePolicy } from './policy.mjs';
 const at = '2026-10-30T16:00:00.000Z';
 const snapshot = JSON.parse(readFileSync(new URL('../policy/flora/pool-state.example.json', import.meta.url), 'utf8'));
-const decision = () => ({ version: 1, id: 'decision-1', jobId: 'flora-385', at, round: 1, kind: 'flora-ui-builder', route: 'sol', previousRoute: null, boundary: 'dispatch', reason: 'equal quality record; Sol first', basis: 'policy', selection_basis: 'approved_profile', policyHash: hash(rolePolicy), profileHash: hash(profile), poolState: structuredClone(snapshot), eligibleRoutes: ['sonnet', 'sol'], headroomByDraw: { sonnet: null, sol: null }, quality: { source: 'none', measurements: [], measuredDifference: false } });
+const decision = () => ({ version: 1, id: 'decision-1', jobId: 'flora-385', at, round: 1, kind: 'flora-ui-builder', route: 'sol', previousRoute: null, boundary: 'dispatch', reason: 'equal quality record; Sol first', basis: 'policy', selection_basis: 'approved_profile', policyHash: hash(rolePolicy), profileHash: hash(profile), poolState: structuredClone(snapshot), eligibleRoutes: ['sonnet', 'sol'], headroomByDraw: { sonnet: null, sol: null }, quality: { source: 'none', measurements: [], sampleFloor: { minimum: 3, countsByRoute: { sonnet: 0, sol: 0 }, applied: true }, measuredDifference: false } });
 
 test('Flora check exits zero for live cards and one for the stale fixture with zero provider calls', () => {
   const check = fileURLToPath(new URL('./flora.check.mjs', import.meta.url));
@@ -116,10 +116,8 @@ test('cheaper live route wins by default and qualityEqual cannot gate it', () =>
 test('outcome record for the job class overrides cheaper headroom without promoting trust', () => {
   const input = { kind: 'flora-ui-builder', poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
     headroomByDraw: { sonnet: 1, sol: 4 }, jobId: 'job', round: 1, boundary: 'dispatch' };
-  const outcomes = [
-    { decisionId: 'a', kind: input.kind, route: 'sonnet', result: 'pass' },
-    { decisionId: 'b', kind: input.kind, route: 'sol', result: 'fail' },
-  ];
+  const outcomes = ['sonnet', 'sol'].flatMap(route => Array.from({ length: 3 }, (_, i) =>
+    ({ decisionId: `${route}-${i}`, kind: input.kind, route, result: route === 'sonnet' ? 'pass' : 'fail' })));
   const d = pickFlora(input, { id: 'd', now: at, outcomes });
   assert.equal(d.route, 'sonnet');
   assert.equal(d.quality.source, 'outcomes.jsonl:pass_rate');
@@ -127,11 +125,31 @@ test('outcome record for the job class overrides cheaper headroom without promot
   assert.match(d.reason, /higher measured quality/);
   assert.doesNotThrow(() => validateRoutingDecision(d));
   for (const records of [outcomes.slice(0, 1), outcomes.map(r => ({ ...r, kind: 'flora-general-builder' })),
-    [...outcomes, { ...outcomes[1], result: 'pass' }], outcomes.map(r => ({ ...r, result: 'abandoned' }))]) {
+    outcomes.map(r => ({ ...r, result: 'pass' })), outcomes.map(r => ({ ...r, result: 'abandoned' }))]) {
     assert.equal(pickFlora(input, { id: 'd', now: at, outcomes: records }).route, 'sol');
   }
   assert.equal(loadFloraCards().find(c => c.task === input.kind).trust, 'UNCALIBRATED');
 });
+
+for (const [sonnet, sol, expected] of [[2, 5, 'sol'], [3, 3, 'sonnet'], [3, 2, 'sol'], [3, 0, 'sol']]) {
+  test(`quality sample floor: ${sonnet} vs ${sol} outcomes selects ${expected}`, () => {
+    const input = { kind: 'flora-ui-builder', poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
+      headroomByDraw: { sonnet: 1, sol: 4 }, jobId: 'job', round: 1, boundary: 'dispatch' };
+    const outcomes = Object.entries({ sonnet, sol }).flatMap(([route, count]) => Array.from({ length: count }, (_, i) =>
+      ({ decisionId: `${route}-${i}`, kind: input.kind, route, result: route === 'sonnet' ? 'pass' : 'fail' })));
+    const d = pickFlora(input, { id: 'd', now: at, outcomes });
+    assert.equal(d.route, expected);
+    assert.deepEqual(d.quality.sampleFloor, { minimum: 3, countsByRoute: { sonnet, sol }, applied: sonnet < 3 || sol < 3 });
+    assert.equal(d.quality.measuredDifference, sonnet >= 3 && sol >= 3);
+    assert.doesNotThrow(() => validateRoutingDecision(d));
+    for (const mutate of [d => d.quality.sampleFloor.applied = !d.quality.sampleFloor.applied,
+      d => d.quality.sampleFloor.minimum = 2, d => delete d.quality.sampleFloor.countsByRoute.sol,
+      d => d.quality.sampleFloor.countsByRoute.sonnet = -1]) {
+      const broken = structuredClone(d); mutate(broken);
+      assert.throws(() => validateRoutingDecision(broken), /sample floor/);
+    }
+  });
+}
 
 test('existing card measured rows supply quality, but stale or incomplete cards do not', () => {
   const card = { task: 'flora-ui-builder', generated: at, expires_days: 30, models: [
@@ -142,6 +160,14 @@ test('existing card measured rows supply quality, but stale or incomplete cards 
   const selected = selectFloraRoute(args);
   assert.equal(selected.route, 'sonnet');
   assert.equal(selected.quality.source, 'card:score_mean');
+  for (const route of ['sonnet', 'sol']) {
+    const thinCard = structuredClone(card);
+    thinCard.models.find(row => row.model === profile.routes[route].cardIdentity).completed = 2;
+    const thin = selectFloraRoute({ ...args, card: thinCard });
+    assert.equal(thin.route, 'sol');
+    assert.equal(thin.quality.sampleFloor.applied, true);
+    assert.equal(thin.quality.measuredDifference, false);
+  }
   assert.equal(selectFloraRoute({ ...args, card: { ...card, generated: '2025-01-01' } }).route, 'sol');
   assert.equal(selectFloraRoute({ ...args, card: { ...card, models: card.models.slice(0, 1) } }).route, 'sol');
 });
@@ -232,8 +258,11 @@ test('persisted Flora outcomes reach selection through the existing state log re
   const stateDir = mkdtempSync(join(tmpdir(), 'flora-quality-'));
   t.after(() => rmSync(stateDir, { recursive: true, force: true }));
   for (const [route, result] of [['sonnet', 'pass'], ['sol', 'fail']]) {
-    logDecision(stateDir, { ...decision(), id: route, route });
-    await recordOutcome({ decisionId: route, result }, { stateDir, now: at });
+    for (let i = 0; i < 3; i++) {
+      const id = `${route}-${i}`;
+      logDecision(stateDir, { ...decision(), id, route });
+      await recordOutcome({ decisionId: id, result }, { stateDir, now: at });
+    }
   }
   const selected = pick({ kind: 'flora-ui-builder', poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
     headroomByDraw: { sonnet: 1, sol: 4 }, jobId: 'job', round: 1, boundary: 'dispatch' },

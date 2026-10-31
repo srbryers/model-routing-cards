@@ -82,15 +82,18 @@ Only eligible routes compete. Routes count as quality-equal unless records for t
 The existing `outcomes.jsonl` records supply per-route pass rates for the job
 class. Corrections use append order. Pass, partial, and fail results form the
 denominator; only pass results form the numerator. Abandoned results are excluded.
-Both eligible routes need results before a difference can apply. These field
+Sebastian's October 31, 2026 sample-floor ruling requires at least 3 measured outcomes per eligible route before a difference can apply. Below that floor, quality counts as equal and the cheaper live route wins. These field
 rates describe recorded jobs, not controlled calibration, and never promote trust.
 If outcome coverage is incomplete, fresh card measured rows for both routes can
-supply `score_mean`. No new quality store is used. Missing or equal measurements
+supply `score_mean`, subject to the 3-sample floor per eligible route. No new quality store is used. Missing or equal measurements
 leave the cheaper-route rule in effect. A measured difference selects the route
 with the higher score before headroom is considered.
 
 Decisions retain eligible routes, headroom/draw ratios (null when unavailable),
 the quality source and measurements, whether a difference applied, and the winner.
+`quality.sampleFloor` records `minimum: 3`, `countsByRoute`, and `applied`.
+Counts use the selected measurement source, or available outcome counts when coverage is incomplete.
+The validator rejects missing or inconsistent floor fields in decision receipts.
 
 `pickFlora` returns a static selection receipt with pool state and no spawn. Missing snapshots return `needs_pool_state`; no eligible route returns `waiting_capacity`. Jev returns `blocked_identity`. `recordOutcome` validates Flora decisions and copies their pool state into outcomes. Existing outcomes remain compatible. Live capture, pool pacing, round transitions, append-only decision writes, and provider launch into the Taura scheduler are setup step 8. No live hookup is claimed here.
 
