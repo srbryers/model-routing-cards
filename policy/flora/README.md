@@ -69,7 +69,20 @@ Decision 1's amendment requires a version 1 pool snapshot at dispatch and every 
 
 A routing decision entry requires `version`, `id`, `at`, `jobId`, `round`, `kind`, `route`, `previousRoute`, `boundary`, `reason`, `basis: policy`, `selection_basis: approved_profile`, `policyHash`, `profileHash`, and `poolState`. The snapshot timestamp equals the decision timestamp. `validateRoutingDecision` rejects missing pool state and route changes outside round boundaries. A new snapshot and decision are required even when the route stays selected.
 
-Only eligible routes compete. With equal quality records, prefer more live headroom relative to expected job draw. Sol goes first where a measured headroom difference does not settle the choice. If the headroom picture inverts, a route may change at the next round boundary with a recorded reason. Unknown dollar costs never become estimates. Availability and expected draw come from the host, not invented values here.
+Only eligible routes compete. Routes count as quality-equal unless records for the job class show a measured difference. The caller's `qualityEqual` flag is ignored. Prefer more live headroom relative to expected job draw by default. Sol goes first where a measured headroom difference does not settle the choice. If the headroom picture inverts, a route may change at the next round boundary with a recorded reason. Unknown dollar costs never become estimates. Availability and expected draw come from the host, not invented values here.
+
+The existing `outcomes.jsonl` records supply per-route pass rates for the job
+class. Corrections use append order. Pass, partial, and fail results form the
+denominator; only pass results form the numerator. Abandoned results are excluded.
+Both eligible routes need results before a difference can apply. These field
+rates describe recorded jobs, not controlled calibration, and never promote trust.
+If outcome coverage is incomplete, fresh card measured rows for both routes can
+supply `score_mean`. No new quality store is used. Missing or equal measurements
+leave the cheaper-route rule in effect. A measured difference selects the route
+with the higher score before headroom is considered.
+
+Decisions retain eligible routes, headroom/draw ratios (null when unavailable),
+the quality source and measurements, whether a difference applied, and the winner.
 
 `pickFlora` returns a static selection receipt with pool state and no spawn. Missing snapshots return `needs_pool_state`; no eligible route returns `waiting_capacity`. Jev returns `blocked_identity`. `recordOutcome` validates Flora decisions and copies their pool state into outcomes. Existing outcomes remain compatible. Live capture, pool pacing, round transitions, append-only decision writes, and provider launch into the Taura scheduler are setup step 8. No live hookup is claimed here.
 

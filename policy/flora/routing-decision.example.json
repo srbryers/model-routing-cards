@@ -42,5 +42,18 @@
     },
     "costUsd": null,
     "costSource": "unknown"
+  },
+  "eligibleRoutes": [
+    "sonnet",
+    "sol"
+  ],
+  "headroomByDraw": {
+    "sonnet": null,
+    "sol": null
+  },
+  "quality": {
+    "source": "none",
+    "measurements": [],
+    "measuredDifference": false
   }
 }

@@ -147,7 +147,8 @@ export async function runPick(args, deps = {}) {
   const decision = await withStateLock(dir, () => {
     const now = deps.now ?? new Date();
     const state = readState(dir, policy);
-    const decision = pick(input, { policy, repo, override, quota, classifier, cards, localConfig, localConfigError, ...state, now,
+    const outcomes = isFloraRole(kind) ? readStateLog(dir, 'outcomes.jsonl').records : [];
+    const decision = pick(input, { policy, repo, override, quota, classifier, cards, localConfig, localConfigError, ...state, outcomes, now,
       id: `dec_${new Date(now).getTime()}_${randomUUID().slice(0, 8)}` });
     decision.why.push(...found.why);
     if (state.unreadableLogLines) decision.notes.push(`skipped ${state.unreadableLogLines} unreadable log lines`);
@@ -226,7 +227,7 @@ export async function runRecord(args, deps = {}) {
     execute: { type: 'boolean' }, 'jev-limit-usd': { type: 'string' },
   } });
   if (positionals.length !== 1 || !positionals[0].trim()) throw new TypeError('record needs one decision id');
-  // ⚠ Only record/outcomes load this module; routing and cards cannot consume field evidence.
+  // Flora reads recorded outcomes for its scoped quality rule; field evidence never promotes card trust.
   const { recordOutcome, validateGates } = await import('../scripts/outcomes.mjs');
   let gates = {};
   if (flags['gates-file'] !== undefined) {

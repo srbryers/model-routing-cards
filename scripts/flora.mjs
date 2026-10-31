@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { assertLiveIdentity } from './identity.mjs';
+import { isStale } from './card.mjs';
 
 export const profile = JSON.parse(readFileSync(new URL('../policy/flora/profile.json', import.meta.url), 'utf8'));
 export const rolePolicy = JSON.parse(readFileSync(new URL('../policy/flora/role-policy.json', import.meta.url), 'utf8'));
@@ -75,12 +76,64 @@ export function validateRoutingDecision(entry) {
   const config = profile.roles[role];
   need(config && [config.selectedRoute, ...config.fallbacks].includes(entry.route), 'Decision route outside role allowlist');
   assertRoleRoute(role, profile.routes[entry.route]);
+  need(Array.isArray(entry.eligibleRoutes) && entry.eligibleRoutes.length > 0
+    && new Set(entry.eligibleRoutes).size === entry.eligibleRoutes.length
+    && entry.eligibleRoutes.every(id => [config.selectedRoute, ...config.fallbacks].includes(id))
+    && entry.eligibleRoutes.includes(entry.route), 'Decision requires eligible routes and winner');
+  need(entry.headroomByDraw && entry.eligibleRoutes.every(id => Object.hasOwn(entry.headroomByDraw, id)
+    && (entry.headroomByDraw[id] === null || (Number.isFinite(entry.headroomByDraw[id]) && entry.headroomByDraw[id] >= 0))), 'Decision requires headroom ratios or null');
+  const quality = entry.quality;
+  need(quality && ['none', 'outcomes.jsonl:pass_rate', 'card:score_mean'].includes(quality.source)
+    && Array.isArray(quality.measurements) && typeof quality.measuredDifference === 'boolean', 'Decision requires measured quality basis');
+  need(quality.source === 'none' ? quality.measurements.length === 0
+    : quality.measurements.length === entry.eligibleRoutes.length
+      && entry.eligibleRoutes.every(id => quality.measurements.filter(row => row.route === id
+        && Number.isFinite(row.score) && Number.isSafeInteger(row.samples) && row.samples > 0).length === 1), 'Decision quality measurements must cover eligible routes');
+  need(quality.measuredDifference === (entry.eligibleRoutes.length > 1
+    && new Set(quality.measurements.map(row => row.score)).size > 1), 'Decision quality difference mismatch');
+  if (quality.measuredDifference) need(quality.measurements.find(row => row.route === entry.route).score
+    === Math.max(...quality.measurements.map(row => row.score)), 'Decision must select higher measured quality');
   need(entry.previousRoute == null || [config.selectedRoute, ...config.fallbacks].includes(entry.previousRoute), 'Previous route outside role allowlist');
   return entry;
 }
 
-/** Callers supply expected draw and comparable headroom ratios, never dollar estimates. */
-export function selectFloraRoute({ role, available = [], qualityEqual = false, headroomByDraw = {}, previousRoute = null, boundary = 'dispatch' }) {
+/** Read the existing outcome log first; card rows provide controlled measurements.
+ * Field pass rates describe recorded jobs, not controlled calibration or trust. */
+function qualityRecord(role, eligible, outcomes, card, now) {
+  const latest = new Map(outcomes.filter(row => nonempty(row?.decisionId)).map(row => [row.decisionId, row]));
+  const rows = eligible.map(route => {
+    const records = [...latest.values()].filter(row => canonicalRole(row.kind) === canonicalRole(role)
+      && row.route === route && ['pass', 'partial', 'fail'].includes(row.result));
+    return { route, samples: records.length, score: records.length
+      ? records.filter(row => row.result === 'pass').length / records.length : null,
+    decisionIds: records.map(row => row.decisionId) };
+  });
+  let source = 'none';
+  let measurements = [];
+  if (rows.every(row => row.samples > 0)) {
+    source = 'outcomes.jsonl:pass_rate';
+    measurements = rows;
+  } else if (card?.task === canonicalRole(role) && !isStale(card, new Date(now))
+    && Number.isFinite(Date.parse(card.generated)) && Date.parse(card.generated) <= Date.parse(now)) {
+    try {
+      assertLiveIdentity(card);
+      const measured = eligible.map(route => {
+        const row = card.models?.find(row => row.model === profile.routes[route].cardIdentity);
+        return row && { route, score: row.score_mean, samples: row.completed };
+      });
+      if (measured.every(row => row && Number.isFinite(row.score) && Number.isSafeInteger(row.samples) && row.samples > 0)) {
+        source = 'card:score_mean';
+        measurements = measured;
+      }
+    } catch { /* Quarantined card measurements never enter routing. */ }
+  }
+  return { source, measurements, measuredDifference: eligible.length > 1
+    && new Set(measurements.map(row => row.score)).size > 1 };
+}
+
+/** Callers supply comparable headroom/draw ratios. qualityEqual is ignored. */
+export function selectFloraRoute({ role, available = [], headroomByDraw = {}, outcomes = [], card,
+  now = new Date(), previousRoute = null, boundary = 'dispatch' }) {
   const config = profile.roles[canonicalRole(role)];
   need(config, 'Unknown Flora role');
   need(['dispatch', 'round_boundary'].includes(boundary), 'Route selection requires a round boundary');
@@ -91,18 +144,22 @@ export function selectFloraRoute({ role, available = [], qualityEqual = false, h
   eligible.forEach(id => assertRoleRoute(role, profile.routes[id]));
   if (!eligible.length) return { status: 'waiting_capacity', owner: 'Roman', route: null };
   const measured = id => Number.isFinite(headroomByDraw[id]) && headroomByDraw[id] >= 0;
-  let route = eligible[0];
-  let reason = 'approved role route';
-  if (qualityEqual) {
-    if (eligible.every(measured) && new Set(eligible.map(id => headroomByDraw[id])).size > 1) {
-      route = eligible.reduce((best, id) => headroomByDraw[id] > headroomByDraw[best] ? id : best);
-      reason = 'greater live headroom relative to expected draw';
-    } else if (eligible.includes('sol')) {
-      route = 'sol';
-      reason = 'equal quality record; Sol first under Decision 1 amendment';
-    }
+  const quality = qualityRecord(role, eligible, outcomes, card, now);
+  const contenders = quality.measuredDifference
+    ? eligible.filter(id => quality.measurements.find(row => row.route === id).score === Math.max(...quality.measurements.map(row => row.score)))
+    : eligible;
+  let route = contenders[0];
+  let reason = 'equal quality record; approved role route';
+  if (contenders.every(measured) && new Set(contenders.map(id => headroomByDraw[id])).size > 1) {
+    route = contenders.reduce((best, id) => headroomByDraw[id] > headroomByDraw[best] ? id : best);
+    reason = 'equal quality record; greater live headroom relative to expected draw';
+  } else if (contenders.includes('sol')) {
+    route = 'sol';
+    reason = 'equal quality record; Sol first under Decision 1 amendment';
   }
-  return { status: 'ok', route, reason, selection_basis: 'approved_profile' };
+  if (quality.measuredDifference) reason = `higher measured quality for job class (${quality.source})`;
+  return { status: 'ok', route, reason, selection_basis: 'approved_profile', eligibleRoutes: eligible,
+    headroomByDraw: Object.fromEntries(eligible.map(id => [id, measured(id) ? headroomByDraw[id] : null])), quality };
 }
 
 /** A signed receipt is verified by the host callback, never by a caller-supplied boolean. */
@@ -136,14 +193,14 @@ export function validateBoard({ authors, reviewers, exception, receipt, commit, 
 }
 
 /** Step 8 consumes this decision; no spawn is released by the card repository. */
-export function pickFlora(input, { id, now, limits = {} }) {
+export function pickFlora(input, { id, now, limits = {}, outcomes = [], cards = {} }) {
   const at = new Date(now).toISOString();
   const base = { id, at, kind: canonicalRole(input.kind), repo: 'srbryers/FLORA', spawn: null, beforeSpawn: [], alternatives: [], notes: [], why: [], owner: 'Roman', callsAllowed: 0 };
   validateFloraCards();
   if (!input.poolState) return { ...base, status: 'needs_pool_state', why: ['Dispatch and every round boundary require a pool snapshot'] };
   validatePoolState(input.poolState);
   const available = (input.availableRoutes ?? []).filter(route => !(Date.parse(limits[route]) > Date.parse(at)));
-  const selected = selectFloraRoute({ role: input.kind, available, qualityEqual: input.qualityEqual, headroomByDraw: input.headroomByDraw, previousRoute: input.previousRoute, boundary: input.boundary });
+  const selected = selectFloraRoute({ role: input.kind, available, outcomes, card: cards[canonicalRole(input.kind)], now: at, headroomByDraw: input.headroomByDraw, previousRoute: input.previousRoute, boundary: input.boundary });
   if (!selected.route) return { ...base, ...selected };
   const decision = { ...base, version: 1, jobId: input.jobId, round: input.round, boundary: input.boundary, previousRoute: input.previousRoute ?? null,
     ...selected, basis: 'policy', policyHash: hash(rolePolicy), profileHash: hash(profile), poolState: input.poolState,

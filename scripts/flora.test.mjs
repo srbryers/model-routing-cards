@@ -10,7 +10,7 @@ import { pick } from './pick.mjs';
 import { loadPolicy, validatePolicy } from './policy.mjs';
 const at = '2026-10-30T16:00:00.000Z';
 const snapshot = JSON.parse(readFileSync(new URL('../policy/flora/pool-state.example.json', import.meta.url), 'utf8'));
-const decision = () => ({ version: 1, id: 'decision-1', jobId: 'flora-385', at, round: 1, kind: 'flora-ui-builder', route: 'sol', previousRoute: null, boundary: 'dispatch', reason: 'equal quality record; Sol first', basis: 'policy', selection_basis: 'approved_profile', policyHash: hash(rolePolicy), profileHash: hash(profile), poolState: structuredClone(snapshot) });
+const decision = () => ({ version: 1, id: 'decision-1', jobId: 'flora-385', at, round: 1, kind: 'flora-ui-builder', route: 'sol', previousRoute: null, boundary: 'dispatch', reason: 'equal quality record; Sol first', basis: 'policy', selection_basis: 'approved_profile', policyHash: hash(rolePolicy), profileHash: hash(profile), poolState: structuredClone(snapshot), eligibleRoutes: ['sonnet', 'sol'], headroomByDraw: { sonnet: null, sol: null }, quality: { source: 'none', measurements: [], measuredDifference: false } });
 
 test('Flora check exits zero for live cards and one for the stale fixture with zero provider calls', () => {
   const check = fileURLToPath(new URL('./flora.check.mjs', import.meta.url));
@@ -55,6 +55,62 @@ test('only eligible roles compete; quota, failures, overrides and card winners c
   assert.equal(pick(input, deps).route, 'sol');
   assert.equal(pick(input, { ...deps, limits: { sol: '2026-10-31T00:00:00Z' } }).status, 'waiting_capacity');
   assert.equal(pick({ kind: 'ui-visual' }, { ...deps, repo: 'srbryers/FLORA' }).status, 'needs_kind');
+});
+
+test('cheaper live route wins by default and qualityEqual cannot gate it', () => {
+  const input = { kind: 'flora-ui-builder', poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
+    headroomByDraw: { sonnet: 1, sol: 4 }, jobId: 'job', round: 1, boundary: 'dispatch' };
+  for (const qualityEqual of [undefined, false, true]) {
+    const d = pickFlora({ ...input, qualityEqual }, { id: 'decision', now: at });
+    assert.equal(d.route, 'sol');
+    assert.deepEqual(d.eligibleRoutes, ['sonnet', 'sol']);
+    assert.deepEqual(d.headroomByDraw, input.headroomByDraw);
+    assert.equal(d.quality.measuredDifference, false);
+    assert.doesNotThrow(() => validateRoutingDecision(d));
+  }
+  assert.equal(pickFlora({ ...input, headroomByDraw: { sonnet: 4, sol: 1 } }, { id: 'd', now: at }).route, 'sonnet');
+});
+
+test('outcome record for the job class overrides cheaper headroom without promoting trust', () => {
+  const input = { kind: 'flora-ui-builder', poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
+    headroomByDraw: { sonnet: 1, sol: 4 }, jobId: 'job', round: 1, boundary: 'dispatch' };
+  const outcomes = [
+    { decisionId: 'a', kind: input.kind, route: 'sonnet', result: 'pass' },
+    { decisionId: 'b', kind: input.kind, route: 'sol', result: 'fail' },
+  ];
+  const d = pickFlora(input, { id: 'd', now: at, outcomes });
+  assert.equal(d.route, 'sonnet');
+  assert.equal(d.quality.source, 'outcomes.jsonl:pass_rate');
+  assert.equal(d.quality.measuredDifference, true);
+  assert.match(d.reason, /higher measured quality/);
+  assert.doesNotThrow(() => validateRoutingDecision(d));
+  for (const records of [outcomes.slice(0, 1), outcomes.map(r => ({ ...r, kind: 'flora-general-builder' })),
+    [...outcomes, { ...outcomes[1], result: 'pass' }], outcomes.map(r => ({ ...r, result: 'abandoned' }))]) {
+    assert.equal(pickFlora(input, { id: 'd', now: at, outcomes: records }).route, 'sol');
+  }
+  assert.equal(loadFloraCards().find(c => c.task === input.kind).trust, 'UNCALIBRATED');
+});
+
+test('existing card measured rows supply quality, but stale or incomplete cards do not', () => {
+  const card = { task: 'flora-ui-builder', generated: at, expires_days: 30, models: [
+    { model: profile.routes.sonnet.cardIdentity, score_mean: 0.9, completed: 3 },
+    { model: profile.routes.sol.cardIdentity, score_mean: 0.5, completed: 3 },
+  ] };
+  const args = { role: card.task, available: ['sonnet', 'sol'], headroomByDraw: { sonnet: 1, sol: 4 }, now: at, card };
+  const selected = selectFloraRoute(args);
+  assert.equal(selected.route, 'sonnet');
+  assert.equal(selected.quality.source, 'card:score_mean');
+  assert.equal(selectFloraRoute({ ...args, card: { ...card, generated: '2025-01-01' } }).route, 'sol');
+  assert.equal(selectFloraRoute({ ...args, card: { ...card, models: card.models.slice(0, 1) } }).route, 'sol');
+});
+
+test('routing example validates and incomplete quality receipts fail', () => {
+  const example = JSON.parse(readFileSync(new URL('../policy/flora/routing-decision.example.json', import.meta.url), 'utf8'));
+  assert.doesNotThrow(() => validateRoutingDecision(example));
+  for (const mutate of [d => delete d.eligibleRoutes, d => delete d.quality,
+    d => d.quality.measuredDifference = true, d => delete d.headroomByDraw.sol]) {
+    const d = decision(); mutate(d); assert.throws(() => validateRoutingDecision(d));
+  }
 });
 
 test('pool snapshots and decision reasons are mandatory, route changes require round boundaries', () => {
@@ -122,4 +178,24 @@ test('Flora outcomes retain pool state and reject missing capture before recordi
   const broken = decision(); broken.id = 'broken'; delete broken.poolState;
   logDecision(stateDir, broken, 'brief');
   await assert.rejects(recordOutcome({ decisionId: 'broken', result: 'pass' }, { stateDir, now: at }), /Pool state/);
+});
+
+test('persisted Flora outcomes reach selection through the existing state log reader', async t => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { logDecision, readStateLog } = await import('./state.mjs');
+  const { recordOutcome } = await import('./outcomes.mjs');
+  const stateDir = mkdtempSync(join(tmpdir(), 'flora-quality-'));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  for (const [route, result] of [['sonnet', 'pass'], ['sol', 'fail']]) {
+    logDecision(stateDir, { ...decision(), id: route, route });
+    await recordOutcome({ decisionId: route, result }, { stateDir, now: at });
+  }
+  const selected = pick({ kind: 'flora-ui-builder', poolState: snapshot, availableRoutes: ['sonnet', 'sol'],
+    headroomByDraw: { sonnet: 1, sol: 4 }, jobId: 'job', round: 1, boundary: 'dispatch' },
+  { id: 'new', now: at, outcomes: readStateLog(stateDir, 'outcomes.jsonl').records });
+  assert.equal(selected.route, 'sonnet');
+  assert.equal(selected.quality.measuredDifference, true);
+  assert.doesNotThrow(() => validateRoutingDecision(selected));
 });

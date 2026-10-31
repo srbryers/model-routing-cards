@@ -379,7 +379,7 @@ test('valid adverse field outcomes cannot change pick or receipt cards, and are 
   assert.equal(existsSync(openedPath), false, 'pick/card attempted to open the outcomes file');
 });
 
-test('only record and outcomes production code names the outcomes log', () => {
+test('outcome reads stay confined to record, outcomes and the guarded Flora path', () => {
   // ⚠ Check every production module, including transitive and future helper imports.
   for (const directory of ['bin', 'scripts']) {
     const root = new URL(`../${directory}/`, import.meta.url);
@@ -387,7 +387,14 @@ test('only record and outcomes production code names the outcomes log', () => {
       if (!name.endsWith('.mjs') || name.endsWith('.test.mjs')) continue;
       let source = readFileSync(new URL(name, root), 'utf8');
       if (directory === 'scripts' && name === 'outcomes.mjs') continue;
-      if (directory === 'bin' && name === 'model-routing.mjs') source = source.replace(runOutcomes.toString(), '');
+      if (directory === 'bin' && name === 'model-routing.mjs') {
+        source = source.replace(runOutcomes.toString(), '');
+        const floraRead = "const outcomes = isFloraRole(kind) ? readStateLog(dir, 'outcomes.jsonl').records : [];";
+        assert.ok(source.includes(floraRead), 'Flora outcome reads must stay role-guarded');
+        source = source.replace(floraRead, '');
+      }
+      // The pure selector records a source label; it does not open the log.
+      if (directory === 'scripts' && name === 'flora.mjs') source = source.replaceAll('outcomes.jsonl:pass_rate', 'field pass rate');
       assert.doesNotMatch(source, /outcomes\.jsonl/, `${directory}/${name} opens field evidence outside record/outcomes`);
     }
   }
