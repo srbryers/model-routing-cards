@@ -9,20 +9,20 @@
   "weights": "unweighted mean of metrics",
   "models": [],
   "version": 1,
-  "policy_hash": "e7b85adba3ebcaf19124ba6f03caa50c3bf4064625ea0250e28882781313bbe2",
-  "profile_hash": "15a56110b90acb02d2f33cd62258972fc6ca00d869afb122742b74e4d7b5a8e6",
+  "policy_hash": "f9a89b00fe2a032f7b3d06d6d8367d4ef6ed11e1c81e705e668ee155b8b040e5",
+  "profile_hash": "fdcfec44dd70052d707af21a76c0ce2e7f37c8acabe14ea75ad4d9c45d34c003",
   "selection_basis": "approved_profile",
   "modelConfig": {
     "origin": {
-      "source": "SETUP-1B-POLICY.md",
-      "decision": "2026-10-30",
+      "source": "Sebastian decision 2026-10-31, Mahi + Taura chat",
+      "decision": "2026-10-31",
       "scope": "flora-pilot",
-      "plan": "PLAN.md Sections 3, 5, 6"
+      "note": "The earlier Sonnet entry came from PLAN.md's proposal; Setup 1b never named an orchestrator route."
     },
-    "selectedRoute": "sonnet",
+    "selectedRoute": "muse-wonder",
     "fallbacks": [],
     "effort": null,
-    "effortSource": "provider default; SETUP-1B does not prescribe an effort level",
+    "effortSource": "provider default on the Muse platform",
     "status": "UNCALIBRATED",
     "purpose": "Roman dispatch, router policy reconciliation, evidence review, recovery, and merge recommendation",
     "outcomeFields": [

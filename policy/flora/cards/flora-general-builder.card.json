@@ -9,8 +9,8 @@
   "weights": "unweighted mean of metrics",
   "models": [],
   "version": 1,
-  "policy_hash": "e7b85adba3ebcaf19124ba6f03caa50c3bf4064625ea0250e28882781313bbe2",
-  "profile_hash": "15a56110b90acb02d2f33cd62258972fc6ca00d869afb122742b74e4d7b5a8e6",
+  "policy_hash": "f9a89b00fe2a032f7b3d06d6d8367d4ef6ed11e1c81e705e668ee155b8b040e5",
+  "profile_hash": "fdcfec44dd70052d707af21a76c0ce2e7f37c8acabe14ea75ad4d9c45d34c003",
   "selection_basis": "approved_profile",
   "modelConfig": {
     "origin": {

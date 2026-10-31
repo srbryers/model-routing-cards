@@ -173,18 +173,17 @@
     },
     "flora-orchestrator": {
       "classes": [
-        "implementation-review"
+        "orchestrator"
       ],
       "vendors": [
-        "anthropic"
+        "meta"
       ],
       "providers": [
-        "claude-code"
+        "muse"
       ],
       "prohibitions": [
         "No unlisted class, vendor, provider, fallback, or failure escalation",
-        "No Gemini or Pi without Sebastian direction",
-        "Claude only through Claude Code"
+        "No Gemini or Pi without Sebastian direction"
       ]
     }
   }

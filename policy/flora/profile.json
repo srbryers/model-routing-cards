@@ -50,6 +50,14 @@
       "vendor": "unconfirmed",
       "pool": "service",
       "modelClass": "semantic-judge"
+    },
+    "muse-wonder": {
+      "model": "muse-wonder",
+      "cardIdentity": "meta/muse-wonder",
+      "provider": "muse",
+      "vendor": "meta",
+      "pool": "muse",
+      "modelClass": "orchestrator"
     }
   },
   "roles": {
@@ -279,15 +287,15 @@
     },
     "flora-orchestrator": {
       "origin": {
-        "source": "SETUP-1B-POLICY.md",
-        "decision": "2026-10-30",
+        "source": "Sebastian decision 2026-10-31, Mahi + Taura chat",
+        "decision": "2026-10-31",
         "scope": "flora-pilot",
-        "plan": "PLAN.md Sections 3, 5, 6"
+        "note": "The earlier Sonnet entry came from PLAN.md's proposal; Setup 1b never named an orchestrator route."
       },
-      "selectedRoute": "sonnet",
+      "selectedRoute": "muse-wonder",
       "fallbacks": [],
       "effort": null,
-      "effortSource": "provider default; SETUP-1B does not prescribe an effort level",
+      "effortSource": "provider default on the Muse platform",
       "status": "UNCALIBRATED",
       "purpose": "Roman dispatch, router policy reconciliation, evidence review, recovery, and merge recommendation",
       "outcomeFields": [

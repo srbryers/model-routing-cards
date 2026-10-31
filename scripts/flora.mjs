@@ -30,6 +30,12 @@ export function validateFloraCards(cards = loadFloraCards()) {
   assertLiveIdentity(livePolicy);
   for (const [id, route] of Object.entries(profile.routes)) {
     if (id === 'jev') continue;
+    // Sebastian's 2026-10-31 platform seat is separate from generic Muse Spark dispatch.
+    if (id === 'muse-wonder') {
+      const seat = { model: 'muse-wonder', cardIdentity: 'meta/muse-wonder', provider: 'muse', vendor: 'meta', pool: 'muse', modelClass: 'orchestrator' };
+      need(Object.entries(seat).every(([field, value]) => route[field] === value), 'Muse Wonder platform seat identity mismatch');
+      continue;
+    }
     const live = livePolicy.routes[id];
     need(live && ['model', 'provider', 'vendor', 'pool'].every(field => live[field] === route[field]) && live.cardModels.includes(route.cardIdentity), 'Live policy and Flora route identity mismatch');
   }

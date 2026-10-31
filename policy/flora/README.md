@@ -18,11 +18,13 @@ The eleven versioned cards use the existing `buildCard` fields with `version`, p
 | flora-judge | jev-latest, TypeSafe adapter | Identity hold |
 | flora-sim-runner | Sol through Codex | Wait; code-only scripts may continue |
 | flora-sim-persona-judge | jev-latest, TypeSafe adapter | Identity hold; affected sim gate exits 2 |
-| flora-orchestrator | Sonnet through Claude Code | Wait or Roman's authorized Claude session |
+| flora-orchestrator | Muse Wonder through the Muse platform agent | Wait for Roman's own Muse session |
 
 The approved plan's eleven basenames are retained. `flora-backup-builder` aliases `flora-general-builder`; UI backup is also explicit in `flora-ui-builder`. `flora-router-reconciler` aliases `flora-orchestrator`. Router policy selection itself uses deterministic code. Jev's family identity is explicitly unconfirmed. Both semantic cards remain blocked until a separate identity record closes that gap.
 
-Effort is provider default because SETUP-1B specifies no effort level. This does not preserve the older extra-high UI implementation default. `modelConfig.origin` carries the source, decision date, and scope.
+Sebastian's October 31, 2026 decision assigns the orchestrator seat to Muse Wonder, the Muse platform agent. Setup 1b never named an orchestrator route. The earlier Sonnet entry came from PLAN.md's proposal.
+
+The orchestrator uses provider default effort on the Muse platform. Other roles use provider default effort because SETUP-1B specifies no effort level. This does not preserve the older extra-high UI implementation default. `modelConfig.origin` carries the source, decision date, and scope.
 
 Cards stay inside this repo under `policy/flora/cards`. `node scripts/flora-cards.mjs` rebuilds them without calls. User card stores were not written. Task modules provide briefs and evidence requirements; they refuse provider execution pending an approved role calibration harness. They do not claim completed semantic scoring or labelled calibration fixtures.
 
@@ -41,7 +43,7 @@ Cards stay inside this repo under `policy/flora/cards`. `node scripts/flora-card
 | UI elevation | implementation-review | Anthropic | Separate session; no design-lead escalation; cannot count as a board seat |
 | Semantic dispute and persona judge | semantic-judge | Unconfirmed | Blocked pending family identity; no factual arithmetic or reviewer clearance |
 | Persona actor | implementation-actor | OpenAI | No hidden observer facts fed to the actor |
-| Orchestrator and router reconciler | implementation-review | Anthropic | Cannot clear taste or contract flags |
+| Orchestrator and router reconciler | orchestrator | Meta | Cannot clear taste or contract flags |
 
 Claude never runs through OpenRouter or Pi. Gemini and Pi require Sebastian's direction and a new scoped profile. No quota, failure count, override, card winner, or paid fallback grants another route. Explicit Flora roles enter `pickFlora` before generic ranking. Generic kinds for the Flora repository return `needs_kind`. Existing classifier labels remain stable.
 

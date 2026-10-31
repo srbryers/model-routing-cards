@@ -44,6 +44,48 @@ test('forbidden providers and fallback classes fail role policy', () => {
   }
 });
 
+test('orchestrator uses Muse Wonder per Sebastian decision 2026-10-31, outside Setup 1b', () => {
+  const config = profile.roles['flora-orchestrator'];
+  assert.equal(config.selectedRoute, 'muse-wonder');
+  assert.deepEqual(profile.routes[config.selectedRoute], {
+    model: 'muse-wonder', cardIdentity: 'meta/muse-wonder', provider: 'muse',
+    vendor: 'meta', pool: 'muse', modelClass: 'orchestrator',
+  });
+  assert.deepEqual(config.origin, {
+    source: 'Sebastian decision 2026-10-31, Mahi + Taura chat',
+    decision: '2026-10-31', scope: 'flora-pilot',
+    note: "The earlier Sonnet entry came from PLAN.md's proposal; Setup 1b never named an orchestrator route.",
+  });
+  assert.equal(config.effortSource, 'provider default on the Muse platform');
+  assert.deepEqual(config.fallbacks, []);
+  assert.equal(config.status, 'UNCALIBRATED');
+  const card = loadFloraCards().find(card => card.task === 'flora-orchestrator');
+  assert.deepEqual(card.modelConfig, config);
+  assert.equal(selectFloraRoute({ role: 'flora-router-reconciler', available: ['muse-wonder'] }).route, 'muse-wonder');
+  assert.equal(selectFloraRoute({ role: 'flora-orchestrator', available: ['sonnet', 'muse'] }).status, 'waiting_capacity');
+  assert.throws(() => assertRoleRoute('flora-orchestrator', profile.routes.sonnet), /prohibited/);
+  assert.throws(() => assertRoleRoute('flora-orchestrator', { ...profile.routes['muse-wonder'], provider: 'acp-muse' }), /prohibited/);
+});
+
+test('Muse Wonder platform identity pin rejects drift without bypassing generic route checks', () => {
+  const route = profile.routes['muse-wonder'];
+  for (const field of Object.keys(route)) {
+    const original = route[field];
+    try {
+      route[field] = 'unapproved';
+      assert.throws(() => validateFloraCards(), /Muse Wonder platform seat identity mismatch/);
+    } finally {
+      route[field] = original;
+    }
+  }
+  try {
+    profile.routes['unapproved-platform'] = { ...route };
+    assert.throws(() => validateFloraCards(), /Live policy and Flora route identity mismatch/);
+  } finally {
+    delete profile.routes['unapproved-platform'];
+  }
+});
+
 test('only eligible roles compete; quota, failures, overrides and card winners cannot widen routes', () => {
   assert.equal(selectFloraRoute({ role: 'flora-ui-builder', available: ['sonnet', 'sol', 'opus'], qualityEqual: true }).route, 'sol');
   assert.equal(selectFloraRoute({ role: 'flora-ui-builder', available: ['sonnet', 'sol'], qualityEqual: true, headroomByDraw: { sonnet: 3, sol: 1 } }).route, 'sonnet');
