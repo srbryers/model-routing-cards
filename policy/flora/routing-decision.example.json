@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "id": "fixture-decision-1",
+  "jobId": "fixture-flora-job",
+  "at": "2026-10-30T16:00:00.000Z",
+  "round": 1,
+  "kind": "flora-ui-builder",
+  "route": "sol",
+  "previousRoute": null,
+  "boundary": "dispatch",
+  "reason": "Fixture only: equal quality record; Sol first under Decision 1 amendment",
+  "basis": "policy",
+  "selection_basis": "approved_profile",
+  "policyHash": "f9a89b00fe2a032f7b3d06d6d8367d4ef6ed11e1c81e705e668ee155b8b040e5",
+  "profileHash": "fdcfec44dd70052d707af21a76c0ce2e7f37c8acabe14ea75ad4d9c45d34c003",
+  "poolState": {
+    "version": 1,
+    "capturedAt": "2026-10-30T16:00:00.000Z",
+    "claude": {
+      "sessionHeadroom": {
+        "value": null,
+        "source": "Claude Code tooling unavailable",
+        "unit": "percent"
+      },
+      "weeklyHeadroom": {
+        "value": null,
+        "source": "Claude Code tooling unavailable",
+        "unit": "percent"
+      }
+    },
+    "codex": {
+      "credits": {
+        "value": null,
+        "source": "Codex account tooling unavailable",
+        "unit": "credits"
+      },
+      "planLimits": {
+        "value": null,
+        "source": "Codex account tooling unavailable",
+        "unit": "remaining account allowance"
+      }
+    },
+    "costUsd": null,
+    "costSource": "unknown"
+  },
+  "eligibleRoutes": [
+    "sonnet",
+    "sol"
+  ],
+  "headroomByDraw": {
+    "sonnet": null,
+    "sol": null
+  },
+  "quality": {
+    "source": "none",
+    "measurements": [],
+    "measuredDifference": false
+  }
+}

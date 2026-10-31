@@ -10,6 +10,7 @@
  * Six providers today. Each returns the same envelope so the scorer and the
  * trust gate never learn which one ran.
  */
+import { assertLiveIdentity } from './identity.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -853,6 +854,7 @@ async function viaChatGPT({ model, prompt, schema }) {
  * `claude`, because each one is a model call on a subscription.
  */
 export async function call(spec, { prompt, schema, key, spawn, readSettings }) {
+  assertLiveIdentity(spec);
   if (spec.provider === 'codex') return guardCli(() => viaCodex({ model: spec.model, prompt, schema, spawn }));
   if (spec.provider === 'muse')
     return guardCli(() =>

@@ -1,5 +1,6 @@
 /** ⚠ Different tasks went to different routes. Field outcomes can justify a
  * bake-off, but are confounded and must never become trust-gate receipts. */
+import { isFloraRole, validateRoutingDecision } from './flora.mjs';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -78,6 +79,10 @@ export async function recordOutcome({ decisionId, result, gates = {}, failuresBe
   const decision = await withStateLock(stateDir, () => latestDecisions(readDecisions(stateDir)).get(decisionId));
   if (!decision) throw new TypeError(`Unknown decision id: ${decisionId}`);
   if (!decision.kind || !decision.route || !decision.basis) throw new TypeError('Decision did not select a route');
+  if (isFloraRole(decision.kind)) {
+    validateRoutingDecision(decision);
+    if (execute) throw new TypeError('Flora semantic outcome judging blocked until Jev family identity is confirmed');
+  }
   let jev;
   if (execute) {
     const brief = readFile(briefFile, 'utf8');
@@ -93,7 +98,7 @@ export async function recordOutcome({ decisionId, result, gates = {}, failuresBe
   }
   const record = { decisionId, at: new Date(now).toISOString(), kind: decision.kind,
     route: decision.route, basis: decision.basis, repo: decision.repo ?? null,
-    result, gates, failuresBefore, ...(jev ? { jev } : {}), notes };
+    result, gates, failuresBefore, ...(isFloraRole(decision.kind) ? { poolState: decision.poolState, routingDecisionId: decision.id, costUsd: null, costSource: 'unknown' } : {}), ...(jev ? { jev } : {}), notes };
   await withStateLock(stateDir, () => {
     appendStateLog(stateDir, 'outcomes.jsonl', record);
   });

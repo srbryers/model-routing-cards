@@ -1,0 +1,37 @@
+{
+  "task": "flora-planner",
+  "generated": "2026-10-30",
+  "expires_days": 30,
+  "trust": "UNCALIBRATED",
+  "recommend": null,
+  "why": "Approved static role mapping; no controlled calibration runs",
+  "notes": [],
+  "weights": "unweighted mean of metrics",
+  "models": [],
+  "version": 1,
+  "policy_hash": "f9a89b00fe2a032f7b3d06d6d8367d4ef6ed11e1c81e705e668ee155b8b040e5",
+  "profile_hash": "fdcfec44dd70052d707af21a76c0ce2e7f37c8acabe14ea75ad4d9c45d34c003",
+  "selection_basis": "approved_profile",
+  "modelConfig": {
+    "origin": {
+      "source": "SETUP-1B-POLICY.md",
+      "decision": "2026-10-30",
+      "scope": "flora-pilot",
+      "plan": "PLAN.md Sections 3, 5, 6"
+    },
+    "selectedRoute": "astra",
+    "fallbacks": [],
+    "effort": null,
+    "effortSource": "provider default; SETUP-1B does not prescribe an effort level",
+    "status": "UNCALIBRATED",
+    "purpose": "Non-UI programme plans against the accepted contract",
+    "outcomeFields": [
+      "missing requirements",
+      "plan rounds",
+      "contract revisions"
+    ],
+    "wait": "waiting_capacity"
+  },
+  "cost_usd": null,
+  "cost_source": "unknown"
+}

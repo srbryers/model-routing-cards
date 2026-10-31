@@ -1,7 +1,7 @@
 /**
  * Bug fix: diagnose and fix a reported bug from a symptom, not a stack trace.
  *
- * Policy (routing-profile.md): Sonnet 5.5 and GPT-6 Luna are the bug-fix
+ * Policy (routing-profile.md): Sonnet 5.5 and GPT-5.6 Luna are the bug-fix
  * candidates. Recovery after repeated failures goes to Opus 5.5 and is a
  * different job; this card measures the first attempt.
  *
