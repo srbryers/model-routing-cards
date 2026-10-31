@@ -139,12 +139,13 @@ for (const [sonnet, sol, expected] of [[2, 5, 'sol'], [3, 3, 'sonnet'], [3, 2, '
       ({ decisionId: `${route}-${i}`, kind: input.kind, route, result: route === 'sonnet' ? 'pass' : 'fail' })));
     const d = pickFlora(input, { id: 'd', now: at, outcomes });
     assert.equal(d.route, expected);
-    assert.deepEqual(d.quality.sampleFloor, { minimum: 3, countsByRoute: { sonnet, sol }, applied: sonnet < 3 || sol < 3 });
+    assert.deepEqual(d.quality.sampleFloor, { minimum: 3, countsByRoute: sol === 0 ? { sonnet: 0, sol: 0 } : { sonnet, sol }, applied: sonnet < 3 || sol < 3 });
     assert.equal(d.quality.measuredDifference, sonnet >= 3 && sol >= 3);
     assert.doesNotThrow(() => validateRoutingDecision(d));
     for (const mutate of [d => d.quality.sampleFloor.applied = !d.quality.sampleFloor.applied,
       d => d.quality.sampleFloor.minimum = 2, d => delete d.quality.sampleFloor.countsByRoute.sol,
-      d => d.quality.sampleFloor.countsByRoute.sonnet = -1]) {
+      d => d.quality.sampleFloor.countsByRoute.sonnet = -1,
+      d => d.quality.sampleFloor = null, d => d.quality.sampleFloor = {}]) {
       const broken = structuredClone(d); mutate(broken);
       assert.throws(() => validateRoutingDecision(broken), /sample floor/);
     }
@@ -179,6 +180,51 @@ test('dated routing example rejects stale binding and current quality receipts v
   for (const mutate of [d => delete d.eligibleRoutes, d => delete d.quality,
     d => d.quality.measuredDifference = true, d => delete d.headroomByDraw.sol]) {
     const d = decision(); mutate(d); assert.throws(() => validateRoutingDecision(d));
+  }
+});
+
+test('legacy receipts without a measured difference validate and record outcomes', async t => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { logDecision, readStateLog } = await import('./state.mjs');
+  const { recordOutcome } = await import('./outcomes.mjs');
+  const stateDir = mkdtempSync(join(tmpdir(), 'flora-legacy-'));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  for (const source of ['none', 'outcomes.jsonl:pass_rate', 'card:score_mean']) {
+    const legacy = decision();
+    legacy.id = `legacy-${source}`;
+    delete legacy.quality.sampleFloor;
+    legacy.quality.source = source;
+    if (source !== 'none') legacy.quality.measurements = [
+      { route: 'sonnet', score: 0, samples: 1 }, { route: 'sol', score: 1, samples: 1 },
+    ];
+    assert.doesNotThrow(() => validateRoutingDecision(legacy));
+    logDecision(stateDir, legacy, 'brief');
+    const outcome = await recordOutcome({ decisionId: legacy.id, result: 'pass' }, { stateDir, now: at });
+    assert.equal(outcome.decisionId, legacy.id);
+    assert.equal(outcome.result, 'pass');
+    assert.deepEqual(outcome.poolState, snapshot);
+  }
+  assert.equal(readStateLog(stateDir, 'outcomes.jsonl').records.length, 3);
+});
+
+test('legacy receipts claiming a measured difference require sample floor fields', () => {
+  const legacy = decision();
+  delete legacy.quality.sampleFloor;
+  legacy.quality.source = 'outcomes.jsonl:pass_rate';
+  legacy.quality.measurements = [
+    { route: 'sonnet', score: 0, samples: 3 }, { route: 'sol', score: 1, samples: 3 },
+  ];
+  legacy.quality.measuredDifference = true;
+  assert.throws(() => validateRoutingDecision(legacy), /sample floor required/);
+});
+
+test('receipts without a quality source reject nonzero sample counts', () => {
+  for (const route of ['sonnet', 'sol', 'extra']) {
+    const d = decision();
+    d.quality.sampleFloor.countsByRoute[route] = 3;
+    assert.throws(() => validateRoutingDecision(d), /zero sample counts/);
   }
 });
 

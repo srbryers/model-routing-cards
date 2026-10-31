@@ -97,12 +97,18 @@ export function validateRoutingDecision(entry) {
       && entry.eligibleRoutes.every(id => quality.measurements.filter(row => row.route === id
         && Number.isFinite(row.score) && Number.isSafeInteger(row.samples) && row.samples > 0).length === 1), 'Decision quality measurements must cover eligible routes');
   const floor = quality.sampleFloor;
-  need(floor?.minimum === QUALITY_SAMPLE_FLOOR && floor.countsByRoute
-    && entry.eligibleRoutes.every(id => Number.isSafeInteger(floor.countsByRoute[id]) && floor.countsByRoute[id] >= 0)
-    && quality.measurements.every(row => floor.countsByRoute[row.route] === row.samples)
-    && floor.applied === entry.eligibleRoutes.some(id => floor.countsByRoute[id] < QUALITY_SAMPLE_FLOOR), 'Decision quality sample floor mismatch');
-  need(quality.measuredDifference === (!floor.applied && entry.eligibleRoutes.length > 1
-    && new Set(quality.measurements.map(row => row.score)).size > 1), 'Decision quality difference mismatch');
+  // Receipts from before the floor may omit it only without a measured difference.
+  need(Object.hasOwn(quality, 'sampleFloor') || !quality.measuredDifference, 'Decision quality sample floor required for measured difference');
+  if (Object.hasOwn(quality, 'sampleFloor')) {
+    need(floor?.minimum === QUALITY_SAMPLE_FLOOR && floor.countsByRoute
+      && entry.eligibleRoutes.every(id => Number.isSafeInteger(floor.countsByRoute[id]) && floor.countsByRoute[id] >= 0)
+      && quality.measurements.every(row => floor.countsByRoute[row.route] === row.samples)
+      && floor.applied === entry.eligibleRoutes.some(id => floor.countsByRoute[id] < QUALITY_SAMPLE_FLOOR), 'Decision quality sample floor mismatch');
+    need(quality.measuredDifference === (!floor.applied && entry.eligibleRoutes.length > 1
+      && new Set(quality.measurements.map(row => row.score)).size > 1), 'Decision quality difference mismatch');
+    need(quality.source !== 'none' || (!quality.measuredDifference
+      && Object.values(floor.countsByRoute).every(count => count === 0)), 'Decision without quality source requires zero sample counts and no measured difference');
+  }
   if (quality.measuredDifference) need(quality.measurements.find(row => row.route === entry.route).score
     === Math.max(...quality.measurements.map(row => row.score)), 'Decision must select higher measured quality');
   need(entry.previousRoute == null || [config.selectedRoute, ...config.fallbacks].includes(entry.previousRoute), 'Previous route outside role allowlist');
@@ -139,7 +145,8 @@ function qualityRecord(role, eligible, outcomes, card, now) {
       }
     } catch { /* Quarantined card measurements never enter routing. */ }
   }
-  const countsByRoute = Object.fromEntries((measurements.length ? measurements : rows).map(row => [row.route, row.samples]));
+  const countsByRoute = Object.fromEntries(source === 'none'
+    ? eligible.map(route => [route, 0]) : measurements.map(row => [row.route, row.samples]));
   const sampleFloor = { minimum: QUALITY_SAMPLE_FLOOR, countsByRoute,
     applied: eligible.some(id => countsByRoute[id] < QUALITY_SAMPLE_FLOOR) };
   return { source, measurements, sampleFloor, measuredDifference: !sampleFloor.applied && eligible.length > 1
