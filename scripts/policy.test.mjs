@@ -729,3 +729,30 @@ test('Claude latest aliases preserve provider, pool and vendor restrictions', ()
     }
   }
 });
+
+test('latest intent is accepted on terra sol and astra with standing IDs preserved', () => {
+  for (const [family, model] of [['terra', 'gpt-5.6-terra'], ['sol', 'gpt-6.1-sol'], ['astra', 'gpt-6-astra']]) {
+    assert.deepEqual(policy.routes[family].modelIntent, { family, latest: true });
+    assert.equal(policy.routes[family].model, model);
+  }
+  assert.equal(validatePolicy(policy).ok, true);
+});
+test('latest intent is rejected on luna', () => {
+  const p = copy(); p.routes.luna.modelIntent = { family: 'luna', latest: true };
+  invalid(validatePolicy(p), /modelIntent.family is excluded/);
+});
+test('latest intent is rejected on Claude routes', () => {
+  const p = copy(); p.routes.sonnet.modelIntent = { family: 'sonnet', latest: true };
+  invalid(validatePolicy(p), /modelIntent requires provider codex/);
+});
+test('latest intent family must match the standing suffix', () => {
+  const p = copy(); p.routes.terra.modelIntent.family = 'sol';
+  invalid(validatePolicy(p), /modelIntent.family must match the standing model suffix/);
+});
+test('latest intent rejects malformed fields and unsupported families', () => {
+  for (const intent of [null, {}, { family: 'terra', latest: false }, { family: 'terra', latest: true, extra: true },
+    { family: 'terra.*', latest: true }]) {
+    const p = copy(); p.routes.terra.modelIntent = intent;
+    invalid(validatePolicy(p), /modelIntent/);
+  }
+});

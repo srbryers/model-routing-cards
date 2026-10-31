@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { validateLocalConfig } from './local-config.mjs';
 import { assertLiveIdentity, LUNA_MODEL, LUNA_CARD } from './identity.mjs';
+import { latestFamilyAllowed } from './latest.mjs';
 import { TRUST } from './card.mjs';
 
 const VENDORS = ['anthropic', 'openai', 'meta', 'local', 'google', 'moonshot', 'zhipu', 'deepseek', 'minimax', 'alibaba'];
@@ -143,13 +144,24 @@ export function validatePolicy(policy) {
       continue;
     }
     if (!fields(route, path, ['provider', 'model', 'machines', 'pool', 'vendor'],
-      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels', 'modelFrom', 'costPer1M', 'disabled', 'requiresSpendApproval', 'note', 'supportedReasoning'])) continue;
+      ['type', 'maxReasoning', 'runningByDefault', 'livenessCheck', 'cardModels', 'modelFrom', 'costPer1M', 'disabled', 'requiresSpendApproval', 'note', 'supportedReasoning', 'modelIntent'])) continue;
     check(!has(route, 'type') || route.type === 'bb', `${path}.type must be bb or external`);
     check(nonempty(route.provider), `${path}.provider is required`);
     if (has(route, 'modelFrom')) {
       check(route.modelFrom === 'local', `${path}.modelFrom must be local`);
       check(route.model === null, `${path}.model must be null when modelFrom is local`);
     } else check(nonempty(route.model), `${path}.model is required`);
+    if (has(route, 'modelIntent')) {
+      const intentPath = `${path}.modelIntent`;
+      if (fields(route.modelIntent, intentPath, ['family', 'latest'])) {
+        const { family, latest } = route.modelIntent;
+        check(route.provider === 'codex', `${intentPath} requires provider codex`);
+        check(id !== 'luna' && latestFamilyAllowed(family), `${intentPath}.family is excluded or unsupported`);
+        check(latest === true, `${intentPath}.latest must be true`);
+        check(typeof route.model === 'string' && typeof family === 'string'
+          && route.model.endsWith(`-${family}`), `${intentPath}.family must match the standing model suffix`);
+      }
+    }
     list(route.machines, `${path}.machines`, machineNames, 1);
     check(has(pools, route.pool), `${path}.pool: unknown pool ${route.pool}`);
     check(VENDORS.includes(route.vendor), `${path}.vendor is unsupported`);

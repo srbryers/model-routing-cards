@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { loadPolicy, loadOverride, repoKey, machineIds, parseUniqueJson } from '../scripts/policy.mjs';
 import { isFloraRole } from '../scripts/flora.mjs';
+import { loadCatalogue } from '../scripts/latest.mjs';
 import { pick } from '../scripts/pick.mjs';
 import { loadLocalConfig, localConfigStatus } from '../scripts/local-config.mjs';
 import { loadEffectivePolicy, exportLocal } from '../scripts/policy-local.mjs';
@@ -143,12 +144,14 @@ export async function runPick(args, deps = {}) {
   const found = cardFile ? findCard(cardFile, { cardsDir: flags['cards-dir'], repoDir,
     env: deps.env ?? process.env, readFile: deps.readFile ?? readFileSync }) : { why: [] };
   if (found.card) cards[kind] = found.card;
+  const catalogue = await (deps.loadCatalogue ?? loadCatalogue)({ env: deps.env ?? process.env,
+    path: deps.cataloguePath, readFile: deps.readCatalogue ?? deps.readFile ?? readFileSync });
   const dir = deps.stateDir ?? stateDirectory();
   const decision = await withStateLock(dir, () => {
     const now = deps.now ?? new Date();
     const state = readState(dir, policy);
     const outcomes = isFloraRole(kind) ? readStateLog(dir, 'outcomes.jsonl').records : [];
-    const decision = pick(input, { policy, repo, override, quota, classifier, cards, localConfig, localConfigError, ...state, outcomes, now,
+    const decision = pick(input, { policy, repo, override, quota, classifier, cards, catalogue, localConfig, localConfigError, ...state, outcomes, now,
       id: `dec_${new Date(now).getTime()}_${randomUUID().slice(0, 8)}` });
     decision.why.push(...found.why);
     if (state.unreadableLogLines) decision.notes.push(`skipped ${state.unreadableLogLines} unreadable log lines`);

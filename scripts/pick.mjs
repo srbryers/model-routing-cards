@@ -1,3 +1,4 @@
+import { latestFamilyAllowed, resolveLatest } from './latest.mjs';
 import { isFloraRole, pickFlora } from './flora.mjs';
 import { resolveCandidates, machineIds } from './policy.mjs';
 
@@ -275,6 +276,12 @@ export function pick(input, deps) {
   } else {
     Object.assign(result, { provider: selected.provider, model: selected.model, reasoning: selected.reasoning });
     const route = policy.routes[selected.route];
+    if (route.provider === 'codex' && selected.route !== 'luna'
+      && route.modelIntent?.latest === true && latestFamilyAllowed(route.modelIntent.family)) {
+      result.modelResolution = resolveLatest(deps.catalogue, route.modelIntent.family, route.model);
+      result.model = result.modelResolution.resolvedModel;
+      if (result.model !== route.model) why.push(`latest ${route.modelIntent.family}: ${route.model} -> ${result.model} (catalogue)`);
+    }
     if (kind === 'bulk-text' && selected.route !== 'pi-local' && selected.pool !== 'local') {
       notes.push(`pi-local unavailable; falling back to ${selected.route} (cloud). Do not send private text.`);
     }
