@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { profile, rolePolicy, hash, loadFloraCards, validateFloraCards, assertRoleRoute, selectFloraRoute, validateBoard, validateRoutingDecision, pickFlora } from './flora.mjs';
 import { call } from './providers.mjs';
 import { pick } from './pick.mjs';
@@ -9,6 +11,17 @@ import { loadPolicy, validatePolicy } from './policy.mjs';
 const at = '2026-10-30T16:00:00.000Z';
 const snapshot = JSON.parse(readFileSync(new URL('../policy/flora/pool-state.example.json', import.meta.url), 'utf8'));
 const decision = () => ({ version: 1, id: 'decision-1', jobId: 'flora-385', at, round: 1, kind: 'flora-ui-builder', route: 'sol', previousRoute: null, boundary: 'dispatch', reason: 'equal quality record; Sol first', basis: 'policy', selection_basis: 'approved_profile', policyHash: hash(rolePolicy), profileHash: hash(profile), poolState: structuredClone(snapshot) });
+
+test('Flora check exits zero for live cards and one for the stale fixture with zero provider calls', () => {
+  const check = fileURLToPath(new URL('./flora.check.mjs', import.meta.url));
+  const fixture = fileURLToPath(new URL('./fixtures/flora-stale-luna.card.json', import.meta.url));
+  const live = spawnSync(process.execPath, [check], { encoding: 'utf8' });
+  assert.equal(live.status, 0, live.stderr);
+  assert.equal(JSON.parse(live.stdout).providerCalls, 0);
+  const stale = spawnSync(process.execPath, [check, fixture], { encoding: 'utf8' });
+  assert.equal(stale.status, 1);
+  assert.match(stale.stderr, /Stale Luna identity.*providerCalls=0/);
+});
 
 test('live eleven-card set passes and stale Luna fixture fails before any provider call', async () => {
   assert.equal(validateFloraCards().cards, 11);

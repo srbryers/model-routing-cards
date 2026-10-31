@@ -17,7 +17,7 @@ function harness(t, extra = {}) {
   const stateDir = mkdtempSync(join(tmpdir(), 'outcomes-cli-'));
   t.after(() => rmSync(stateDir, { recursive: true, force: true }));
   const output = [];
-  return { stateDir, now: '2026-10-04T18:00:00Z', output,
+  return { stateDir, env: { HOME: stateDir }, now: '2026-10-04T18:00:00Z', output,
     stdout: text => output.push(text), stderr: text => output.push(text),
     readKey: () => assert.fail('credential read'), fetchImpl: () => assert.fail('network call'),
     ...extra };
@@ -35,6 +35,27 @@ function files(h, text = brief, result = resultText) {
 }
 const record = ['record', 'dec_test', '--result', 'pass'];
 const response = (body = { answers: { metBrief: { noul: 0.91 } }, model: 'jev-test', usage: { input_tokens: 1000 } }) => ({ ok: true, json: async () => body });
+
+test('routing and outcome reads exclude quarantined card measurements', async t => {
+  const h = harness(t, { repoKey: () => 'someone/repo', loadOverride: () => null });
+  const cardPath = join(h.stateDir, 'quick-edit.card.json');
+  const card = { task: 'quick-edit', trust: 'CALIBRATED', generated: '2026-10-04',
+    recommend: 'openai/gpt-6-luna', measurements: [{ score: 987654321 }] };
+  writeFileSync(cardPath, JSON.stringify(card));
+  assert.equal(await main(['pick', '--kind', 'quick-edit', '--repo', h.stateDir,
+    '--cards-dir', h.stateDir, '--no-quota', '--json'], h), 0);
+  const selected = last(h);
+  assert.equal(selected.basis, 'policy');
+  assert.match(selected.why.join(' '), /quick-edit\.card\.json stale Luna identity quarantined and ignored/);
+  assert.equal(await main(['outcomes', '--json'], h), 0);
+  assert.equal(last(h).rows[0].recordedOutcomes, 0);
+  assert.equal(await main(['record', selected.id, '--result', 'pass'], h), 0);
+  assert.equal(await main(['outcomes', '--json'], h), 0);
+  assert.equal(last(h).rows[0].recordedOutcomes, 1);
+  assert.equal(last(h).rows[0].outcomeBasis.card, 0);
+  assert.doesNotMatch(h.output.at(-1), /gpt-6-luna|987654321|measurements/);
+  assert.deepEqual(JSON.parse(readFileSync(cardPath, 'utf8')), card);
+});
 
 test('record stores verified facts and copies decision metadata', async t => {
   const h = harness(t); const d = decision(h);
@@ -312,7 +333,8 @@ test('valid adverse field outcomes cannot change pick or receipt cards, and are 
     }
     require('node:module').syncBuiltinESMExports();
   `);
-  const env = { ...process.env, MODEL_ROUTING_STATE_DIR: h.stateDir,
+  const env = { ...process.env, HOME: h.stateDir, XDG_CONFIG_HOME: join(h.stateDir, '.config'),
+    MODEL_ROUTING_STATE_DIR: h.stateDir,
     MODEL_ROUTING_CARDS_DIR: runs, XDG_DATA_HOME: join(h.stateDir, 'data'),
     TEST_OUTCOME_PATH: outcomePath, TEST_OUTCOME_OPEN_LOG: openedPath };
   const invoke = args => spawnSync(process.execPath, ['--require', preload, ...args], { env, encoding: 'utf8' });
