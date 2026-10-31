@@ -2,7 +2,7 @@
 
 The shared policy and Flora profile now select the provider’s latest aliases, `sonnet` and `opus`. **Live resolution succeeded for the bare aliases; the API rejects both `@latest` spellings with 404.** The coordinator tested all four forms on 2026-10-31. See [coordinator evidence](#coordinator-verification-2026-10-31).
 
-This report remains **untracked** in the worktree on `bb/latest-model-tags`. The sandbox blocked staging and committing. No push or PR was made.
+This report and the work are committed on `bb/latest-model-tags` and opened as draft PR #25.
 
 ## Route Inventory
 
@@ -145,7 +145,7 @@ In round 1, the first full run found 4 failures: stale example binding, policy d
 
 - The bare Claude aliases resolved successfully in the coordinator’s subscription probes. Both `@latest` spellings returned 404 and are rejected by policy validation. Recorded identities describe those probes; the latest aliases can resolve to newer models later.
 - No latest syntax was established for the other pinned provider paths. Their exceptions do not claim that every possible service-side alias was disproved.
-- No routes, caps, scopes, fallback lists, spend permissions, or authority were widened. No push or PR was made.
+- No routes, caps, scopes, fallback lists, spend permissions, or authority were widened. The work is committed on `bb/latest-model-tags` and opened as draft PR #25.
 
 ## Prose Checks
 
@@ -153,19 +153,4 @@ Round-2 latest-alias sections pass the Communication OS `technical-doc` linter w
 
 In round 1, the Communication OS linter ran with `--profile ~/.communication-os --route technical-doc`. The new latest-tag sections pass with 0 errors: shared README and routing profile each have 3 review warnings; Flora notes have none. Full shared README lint reports 18 errors and 96 warnings in existing sections. Those unrelated prose findings were left outside this change. The report passes with 0 errors. Review warnings remain for contextual pronouns and table density. The baseline shared README has the same 18 errors and 93 warnings; the 3 added warnings are in the new section.
 
-## Commit Block
-
-In round 1, `git add` and `git commit -m "Default Claude routing seats to latest tags"` both failed before writing Git metadata:
-
-```text
-fatal: Unable to create '/Users/sebastianbryers/Development/model-routing-cards/.git/worktrees/mrc-latest-tags/index.lock': Operation not permitted
-```
-
-The sandbox permits writes in this worktree but denies the linked Git metadata directory. No commit was created. The main checkout's files and branch were not edited. The tested worktree changes remain available, and `RESULT-LATEST.md` remains untracked.
-
-Round 2 did not stage, commit, or push, as instructed. The coordinator can commit from a shell with write access to the linked Git metadata:
-
-```sh
-git -C /Users/sebastianbryers/Development/mrc-latest-tags add RESULT-LATEST.md bin/pick.test.mjs policy/README.md policy/flora/README.md policy/flora/cards policy/flora/profile.json policy/policy.json routing-profile.md scripts/flora.test.mjs scripts/pick.test.mjs scripts/policy.mjs scripts/policy.test.mjs scripts/providers.test.mjs
-git -C /Users/sebastianbryers/Development/mrc-latest-tags commit -m "Default Claude routing seats to latest aliases"
-```
+The coordinator committed the tree after the sandbox blocked Git metadata writes.
