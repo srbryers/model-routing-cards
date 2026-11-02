@@ -120,6 +120,23 @@ system collects comparison evidence during normal work instead of only in
 bake-offs. A review is never a merge gate on its own: no measured model finds
 most human-flagged bugs (best recall 44.2%).
 
+### Coordinator-direct review is the default
+
+Sebastian's decision, 2026-11-02 ("We're wasting claude tokens"): when Roman
+(Muse Wonder) coordinates a job, Roman reviews that job's PRs himself - full
+diff, full logs, limits stated in the report - instead of spending a Claude
+Sonnet seat on the review. Muse draws on no Claude pool, and the Claude pool
+is the fleet's scarce resource. This supersedes the Sonnet half of the
+2026-11-01 review correction for coordinator-led work; that correction stands
+for work Roman does not coordinate.
+
+What does not change: the author never reviews (Roman is never the builder);
+the review stays cross-family against the builder (Muse is a different family
+from both the Claude and Codex seats); when Roman is not coordinating, or a
+second independent read is wanted, Sonnet (Claude side) and Luna (Codex side)
+remain the review seats; Opus stays out of reviews entirely. First applied:
+Jawanna art prompt fix (Sol build, Roman review), 2026-11-02.
+
 ### Trust gate
 
 A card's status decides how much its recommendation counts.
@@ -149,3 +166,4 @@ mean difference smaller than the spread is not a finding.
 | Jev questions are unchecked | A judge that rates everything alike makes every card `NO_CLEAR_WINNER` | Run each task's `examples` through `checkJudge` |
 | Latency is not scored | Matters most for quick edits | Read `ms` from receipts |
 | No cards for the Opus categories | UI, iOS, architecture and recovery rest on policy alone | Write tasks for them |
+
